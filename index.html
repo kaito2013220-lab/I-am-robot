@@ -53,6 +53,7 @@
     .btn-danger { background-color: #dc3545; padding: 6px 10px; font-size: 12px; width: auto; }
     .btn-warning { background-color: #e0a800; color: #fff; }
     .btn-warning:hover { background-color: #c69500; }
+    .btn-disabled { background-color: #cccccc !important; cursor: not-allowed; }
 
     /* ログイン状態のユーザー名表示 */
     .user-welcome {
@@ -201,7 +202,7 @@
 
 <div class="app-container">
 
-  <!-- 1. ログイン前トップ画面 (シーンA) -->
+  <!-- 1. ログイン前トップ画面 -->
   <div id="screenLanding" class="screen active">
     <h1 style="margin-top: 40px;">reCAPTCHA Maker</h1>
     <p style="text-align: center; color: #666; margin-bottom: 40px; font-size: 14px;">理不尽な画像認証クイズを作って遊ぼう！</p>
@@ -213,7 +214,7 @@
     </div>
   </div>
 
-  <!-- 2. ログイン後メイン画面 (シーンB) -->
+  <!-- 2. ログイン後メイン画面 -->
   <div id="screenDashboard" class="screen">
     <h1>マイダッシュボード</h1>
     <div class="user-welcome" id="welcomeUserText">ようこそ、ゲストさん</div>
@@ -422,9 +423,13 @@
     }
   }
 
-  // --- 公開・送信制御 ---
+  // --- 公開・送信制御 (1クイズ1回制限 ＆ 「公開したらできました」表示) ---
   window.openPublishModalForQuiz = function(quiz) {
     if (!currentUser) { openAuthModal('login'); return; }
+    if (quiz.cloudId) {
+      alert("このクイズはすでに公開済みです。");
+      return;
+    }
     targetQuizzesForPublish = [quiz];
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('publishModal').classList.add('active');
@@ -445,8 +450,14 @@
     checkboxes.forEach(cb => {
       const id = parseInt(cb.value, 10);
       const found = localQuizzes.find(q => q.id === id);
-      if (found) targetQuizzesForPublish.push(found);
+      // すでに公開済みのものは除外して未公開のものだけを一括対象にする
+      if (found && !found.cloudId) targetQuizzesForPublish.push(found);
     });
+
+    if (targetQuizzesForPublish.length === 0) {
+      alert("選択されたクイズはすべてすでに公開済みです。");
+      return;
+    }
 
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('publishModal').classList.add('active');
@@ -483,7 +494,7 @@
         return matched ? { ...q, cloudId: matched.cloudId } : q;
       })));
 
-      alert(`${targetQuizzesForPublish.length}件のクイズを公開・送信しました！`);
+      alert("公開したらできました！");
       closePublishModal();
       showScreen('screenDashboard');
     } catch (e) { alert("送信エラー: " + e.message); }
@@ -509,7 +520,7 @@
     }
   }
 
-  // --- 全アカウント共通のクラウド読み込み（みんなの広場 ＆ 友達からのクイズ） ---
+  // --- 全アカウント共通のクラウド読み込み（誰のアカウントでも全員分見られるように修正） ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
@@ -525,12 +536,12 @@
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
-          // 全体公開（targetUserがないか空のもの）→ 誰でも共通で閲覧可能
+          // 全体公開のクイズ（誰でも閲覧可能）
           if (!data.targetUser || data.targetUser.trim() === "") {
             quizzes.push(data);
           }
         } else if (mode === 'direct') {
-          // ログイン中かつ自分宛てのもの
+          // 自分宛てのクイズ
           if (myName && data.targetUser.trim() === myName) {
             quizzes.push(data);
           }
@@ -588,10 +599,10 @@
       item.className = 'quiz-list-item';
       item.innerHTML = `
         <div style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">
+          ${!isPublished ? `<input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">` : `<span style="width:20px; text-align:center; color:#ccc;">✓</span>`}
           <div>
             <strong>${quiz.title}</strong> (${quiz.gridSize}マス)<br>
-            <span style="font-size:11px; color:${isPublished ? 'green' : '#888'};">${isPublished ? '🌐 公開中' : '🔒 未公開'}</span>
+            <span style="font-size:11px; color:${isPublished ? 'green' : '#888'};">${isPublished ? '🌐 公開中 (投稿済)' : '🔒 未公開'}</span>
           </div>
         </div>
         <div style="display:flex; gap:4px; align-items:center;">
