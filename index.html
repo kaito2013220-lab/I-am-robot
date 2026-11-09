@@ -208,10 +208,11 @@
   <!-- 1. ホーム画面 -->
   <div id="screenHome" class="screen active">
     <h1>reCAPTCHA Maker</h1>
-    <div style="margin-top: 40px;">
+    <div style="margin-top: 20px;">
       <button class="btn" onclick="showScreen('screenCreate')">新規クイズ作成</button>
       <button class="btn btn-secondary" onclick="openAlbum('local')">ｍｙアルバム (端末内)</button>
       <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (クラウド)</button>
+      <button class="btn btn-secondary" style="background-color: #e0a800; color: #fff;" onclick="openAlbum('direct')">友達からのクイズ</button>
     </div>
   </div>
 
@@ -251,19 +252,22 @@
     </div>
 
     <button class="btn btn-secondary" style="margin-top: 12px;" onclick="saveQuizLocal()">端末に保存</button>
-    <button class="btn btn-success" onclick="saveQuizCloud()">みんなの広場に公開</button>
     <button class="btn btn-secondary" onclick="showScreen('screenHome')">ホームへ戻る</button>
   </div>
 
   <!-- 3. アルバム / 一覧画面 -->
   <div id="screenAlbum" class="screen">
     <h2 id="albumTitle">アルバム</h2>
+    <div id="batchActionArea" style="margin-bottom: 10px; display:none;">
+      <button class="btn btn-success" onclick="openBatchPublishModal()">選択したクイズをまとめて公開・送信</button>
+    </div>
     <div id="quizList"></div>
     <button class="btn btn-secondary" onclick="showScreen('screenHome')" style="margin-top: 16px;">ホームへ戻る</button>
   </div>
 
-  <!-- 4. クイズ挑戦画面 -->
+  <!-- 4. クイズ挑戦画面 (連続プレイ対応) -->
   <div id="screenPlay" class="screen">
+    <div id="progressIndicator" style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; text-align: right;"></div>
     <div class="recaptcha-card">
       <div class="recaptcha-header">
         <p>以下の画像をすべて選択してください：</p>
@@ -280,7 +284,28 @@
 
 </div>
 
-<!-- 認証モーダル (ログイン / 新規登録) -->
+<!-- 公開・送信設定モーダル -->
+<div id="publishModal" class="modal">
+  <div class="modal-content">
+    <h3>公開・送信設定</h3>
+    <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left; margin-top:6px;">難易度 (1〜5):</label>
+    <select id="pubDifficulty" style="width:100%; padding:8px; margin:4px 0 10px 0;">
+      <option value="1">⭐ 1 (かんたん)</option>
+      <option value="2">⭐⭐ 2</option>
+      <option value="3" selected>⭐⭐⭐ 3 (ふつう)</option>
+      <option value="4">⭐⭐⭐⭐ 4</option>
+      <option value="5">⭐⭐⭐⭐⭐ 5 (むずかしい)</option>
+    </select>
+
+    <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left;">宛先 (全体公開 または 特定アカウント名):</label>
+    <input type="text" id="pubTargetUser" placeholder="空欄なら「みんなの広場」全体公開" style="width:100%; padding:8px; margin:4px 0 12px 0;">
+
+    <button class="btn btn-success" onclick="executePublish()">決定して公開・送信</button>
+    <button class="btn btn-secondary" onclick="closePublishModal()" style="margin-top:4px;">キャンセル</button>
+  </div>
+</div>
+
+<!-- 認証モーダル -->
 <div id="authModal" class="modal">
   <div class="modal-content">
     <h3 id="authModalTitle">アカウントログイン</h3>
@@ -292,7 +317,7 @@
   </div>
 </div>
 
-<!-- トリミング / 縮小調整用モーダル -->
+<!-- トリミング用モーダル -->
 <div id="cropModal" class="modal">
   <div class="modal-content">
     <h3>位置・縮小調整</h3>
@@ -307,13 +332,12 @@
   </div>
 </div>
 
-<!-- Firebase SDK のインポート & アプリのロジック -->
+<!-- Firebase SDK & アプリロジック -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // あなたのFirebase設定情報
   const firebaseConfig = {
     apiKey: "AIzaSyA18odOYgguPRYtcAUCc5qVky0O6R0iflk",
     authDomain: "captcha-56f12.firebaseapp.com",
@@ -330,32 +354,26 @@
 
   let currentUser = null;
   let isRegisterMode = false;
+  let targetQuizzesForPublish = []; // 単体または一括公開用のデータ保持
 
-  // 認証状態の監視
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
     const statusEl = document.getElementById('loginUserStatus');
     const authBtn = document.getElementById('authBtn');
     if (user) {
-      // メールアドレスの形式に変換して保存しているため、@前をニックネームとして表示
       const nick = user.email.split('@')[0];
       statusEl.textContent = `ログイン中: ${nick}`;
       authBtn.textContent = "ログアウト";
       authBtn.onclick = handleLogout;
     } else {
-      statusEl.textContent = "未ログイン (ローカル保存は可能)";
+      statusEl.textContent = "未ログイン";
       authBtn.textContent = "ログイン / 登録";
       authBtn.onclick = openAuthModal;
     }
   });
 
-  window.openAuthModal = function() {
-    document.getElementById('authModal').classList.add('active');
-  }
-  window.closeAuthModal = function() {
-    document.getElementById('authModal').classList.remove('active');
-  }
-
+  window.openAuthModal = function() { document.getElementById('authModal').classList.add('active'); }
+  window.closeAuthModal = function() { document.getElementById('authModal').classList.remove('active'); }
   window.toggleAuthMode = function() {
     isRegisterMode = !isRegisterMode;
     document.getElementById('authModalTitle').textContent = isRegisterMode ? "新規アカウント登録" : "アカウントログイン";
@@ -365,13 +383,8 @@
   window.handleAuthSubmit = async function() {
     const username = document.getElementById('authUsername').value.trim();
     const pass = document.getElementById('authPassword').value;
-    if (!username || !pass) {
-      alert("ニックネームとパスワードを入力してください。");
-      return;
-    }
-    // Firebase Authはメール形式が必要なため、固有のドメイン形式に変換
+    if (!username || !pass) { alert("ニックネームとパスワードを入力してください。"); return; }
     const dummyEmail = `${username}@recaptcha.app`;
-
     try {
       if (isRegisterMode) {
         await createUserWithEmailAndPassword(auth, dummyEmail, pass);
@@ -381,9 +394,7 @@
         alert("ログインしました！");
       }
       closeAuthModal();
-    } catch (e) {
-      alert("エラー: " + e.message);
-    }
+    } catch (e) { alert("エラー: " + e.message); }
   }
 
   async function handleLogout() {
@@ -391,54 +402,109 @@
     alert("ログアウトしました。");
   }
 
-  // --- クラウド保存 (みんなの広場) ---
-  window.saveQuizCloud = async function() {
-    const title = document.getElementById('createTitle').value.trim();
-    if (!title) { alert('お題を入力してください。'); return; }
-    if (tileImages.some(img => img === null)) { alert('すべてのマスに画像を設定してください。'); return; }
-    if (!correctAnswers.some(ans => ans === true)) { alert('少なくとも1つ以上の正解マスを設定してください。'); return; }
+  // --- 公開・送信モーダル制御 ---
+  window.openPublishModalForQuiz = function(quiz) {
+    if (!currentUser) { alert("公開・送信するにはログインが必要です。"); openAuthModal(); return; }
+    targetQuizzesForPublish = [quiz];
+    document.getElementById('pubTargetUser').value = "";
+    document.getElementById('publishModal').classList.add('active');
+  }
+
+  window.openBatchPublishModal = function() {
+    if (!currentUser) { alert("一括公開するにはログインが必要です。"); openAuthModal(); return; }
+    const checkboxes = document.querySelectorAll('.quiz-select-checkbox:checked');
+    if (checkboxes.length === 0) { alert("公開するクイズを選択してください。"); return; }
+    if (checkboxes.length < 2 || checkboxes.length > 15) {
+      alert("一括公開は2個〜15個の間で選択してください。");
+      return;
+    }
+
+    const localQuizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
+    targetQuizzesForPublish = [];
+    checkboxes.forEach(cb => {
+      const id = parseInt(cb.value, 10);
+      const found = localQuizzes.find(q => q.id === id);
+      if (found) targetQuizzesForPublish.push(found);
+    });
+
+    document.getElementById('pubTargetUser').value = "";
+    document.getElementById('publishModal').classList.add('active');
+  }
+
+  window.closePublishModal = function() {
+    document.getElementById('publishModal').classList.remove('active');
+  }
+
+  window.executePublish = async function() {
+    const difficulty = parseInt(document.getElementById('pubDifficulty').value, 10);
+    const targetUser = document.getElementById('pubTargetUser').value.trim();
+    const authorName = currentUser.email.split('@')[0];
 
     try {
-      await addDoc(collection(db, "quizzes"), {
-        title: title,
-        gridSize: currentGridSize,
-        images: tileImages,
-        answers: correctAnswers,
-        author: currentUser ? currentUser.email.split('@')[0] : "名無しさん",
-        createdAt: Date.now()
-      });
-      alert('「みんなの広場」に公開しました！');
+      for (let quiz of targetQuizzesForPublish) {
+        await addDoc(collection(db, "quizzes"), {
+          title: quiz.title,
+          gridSize: quiz.gridSize,
+          images: quiz.images,
+          answers: quiz.answers,
+          author: authorName,
+          difficulty: difficulty,
+          targetUser: targetUser || "", // 空欄なら全体、文字があれば特定アカウント宛
+          createdAt: Date.now()
+        });
+      }
+      alert(`${targetQuizzesForPublish.length}件のクイズを公開・送信しました！`);
+      closePublishModal();
       showScreen('screenHome');
     } catch (e) {
-      alert("保存失敗: " + e.message);
+      alert("送信エラー: " + e.message);
     }
   }
 
-  // --- クラウド取得 ---
-  window.loadCloudQuizzes = async function() {
+  // --- クラウド取得 (みんなの広場 ＆ 友達からのクイズ) ---
+  window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
+    document.getElementById('batchActionArea').style.display = 'none';
     listContainer.innerHTML = '<p style="text-align:center; color:#888;">クラウドから読み込み中...</p>';
     
     try {
       const querySnapshot = await getDocs(collection(db, "quizzes"));
       listContainer.innerHTML = '';
-      if (querySnapshot.empty) {
-        listContainer.innerHTML = '<p style="text-align:center; color:#888;">みんなの広場にクイズがまだありません。</p>';
+      let quizzes = [];
+
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const myName = currentUser ? currentUser.email.split('@')[0] : "";
+
+        if (mode === 'cloud') {
+          // 全体公開（targetUserがないか空のもの）
+          if (!data.targetUser || data.targetUser === "") {
+            quizzes.push(data);
+          }
+        } else if (mode === 'direct') {
+          // 自分宛てに送信されたもの
+          if (myName && data.targetUser === myName) {
+            quizzes.push(data);
+          }
+        }
+      });
+
+      if (quizzes.length === 0) {
+        listContainer.innerHTML = `<p style="text-align:center; color:#888;">${mode === 'direct' ? 'あなた宛てのクイズはありません。' : 'みんなの広場にクイズがありません。'}</p>';
         return;
       }
 
-      querySnapshot.forEach((docSnap) => {
-        const quiz = docSnap.id;
-        const data = docSnap.data();
+      quizzes.forEach((quizData) => {
+        const diffStars = "⭐".repeat(quizData.difficulty || 3);
         const item = document.createElement('div');
         item.className = 'quiz-list-item';
         item.innerHTML = `
           <div>
-            <strong>${data.title}</strong> (${data.gridSize}マス)<br>
-            <span style="font-size:11px; color:#666;">作者: ${data.author || '名無し'}</span>
+            <strong>${quizData.title}</strong> (${quizData.gridSize}マス)<br>
+            <span style="font-size:11px; color:#666;">作者: ${quizData.author || '名無し'} | 難易度: ${diffStars}</span>
           </div>
           <div>
-            <button class="btn" style="width:auto; padding:6px 12px; margin:0;" onclick='playCloudQuiz(${JSON.stringify(data)})'>挑戦</button>
+            <button class="btn" style="width:auto; padding:6px 12px; margin:0;" onclick='startContinuousPlay([${JSON.stringify(quizData)}], 0)'>挑戦</button>
           </div>
         `;
         listContainer.appendChild(item);
@@ -447,34 +513,18 @@
       listContainer.innerHTML = '<p style="text-align:center; color:red;">読み込みエラーが発生しました。</p>';
     }
   }
-
-  window.playCloudQuiz = function(quizData) {
-    currentPlayingQuiz = quizData;
-    showScreen('screenPlay');
-    document.getElementById('playTitle').textContent = quizData.title;
-    const grid = document.getElementById('playGrid');
-    grid.className = `grid grid-${quizData.gridSize}`;
-    grid.innerHTML = '';
-
-    quizData.images.forEach((src) => {
-      const tile = document.createElement('div');
-      tile.className = 'tile';
-      tile.onclick = () => tile.classList.toggle('selected');
-      const img = document.createElement('img');
-      img.src = src;
-      tile.appendChild(img);
-      grid.appendChild(tile);
-    });
-  }
 </script>
 
-<!-- アプリのベースロジック（UI制御・ローカル保存・トリミング） -->
+<!-- アプリのベースロジック（UI・端末内保存・連続プレイ制御） -->
 <script>
   let currentGridSize = 9;
   let tileImages = [];
   let correctAnswers = [];
   let selectedTileIndex = null;
-  let currentPlayingQuiz = null;
+
+  // 連続プレイ用変数
+  let activePlaylist = [];
+  let currentPlaylistIndex = 0;
 
   let rawImageObj = null;
   let cropScale = 1;
@@ -562,9 +612,7 @@
     drawCropCanvas();
   }
 
-  function closeCropModal() {
-    document.getElementById('cropModal').classList.remove('active');
-  }
+  function closeCropModal() { document.getElementById('cropModal').classList.remove('active'); }
 
   function drawCropCanvas() {
     if (!rawImageObj) return;
@@ -657,7 +705,6 @@
     reader.readAsDataURL(file);
   }
 
-  // 端末内への保存
   function saveQuizLocal() {
     const title = document.getElementById('createTitle').value.trim();
     if (!title) { alert('お題を入力してください。'); return; }
@@ -671,23 +718,27 @@
     showScreen('screenHome');
   }
 
-  // アルバムを開く切り替え
   function openAlbum(mode) {
     showScreen('screenAlbum');
     if (mode === 'local') {
       document.getElementById('albumTitle').textContent = "ｍｙアルバム (端末内)";
       loadLocalQuizzes();
-    } else {
+    } else if (mode === 'cloud') {
       document.getElementById('albumTitle').textContent = "みんなの広場 (クラウド)";
-      loadCloudQuizzes();
+      loadCloudQuizzes('cloud');
+    } else if (mode === 'direct') {
+      document.getElementById('albumTitle').textContent = "友達からのクイズ";
+      loadCloudQuizzes('direct');
     }
   }
 
   function loadLocalQuizzes() {
     const listContainer = document.getElementById('quizList');
+    document.getElementById('batchActionArea').style.display = 'block';
     const quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
     listContainer.innerHTML = '';
     if (quizzes.length === 0) {
+      document.getElementById('batchActionArea').style.display = 'none';
       listContainer.innerHTML = '<p style="text-align:center; color:#888;">保存されたクイズがありません。</p>';
       return;
     }
@@ -695,9 +746,13 @@
       const item = document.createElement('div');
       item.className = 'quiz-list-item';
       item.innerHTML = `
-        <div><strong>${quiz.title}</strong> (${quiz.gridSize}マス)</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">
+          <div><strong>${quiz.title}</strong> (${quiz.gridSize}マス)</div>
+        </div>
         <div>
-          <button class="btn" style="width:auto; padding:6px 12px; margin:0 4px 0 0;" onclick='playLocalQuiz(${JSON.stringify(quiz)})'>挑戦</button>
+          <button class="btn" style="width:auto; padding:6px 10px; margin:0 2px 0 0;" onclick='startContinuousPlay([${JSON.stringify(quiz)}], 0)'>挑戦</button>
+          <button class="btn btn-success" style="width:auto; padding:6px 8px; margin:0 2px 0 0; background:#17a2b8;" onclick='openPublishModalForQuiz(${JSON.stringify(quiz)})'>公開</button>
           <button class="btn btn-danger" onclick="deleteLocalQuiz(${quiz.id})">削除</button>
         </div>
       `;
@@ -712,10 +767,19 @@
     loadLocalQuizzes();
   }
 
-  function playLocalQuiz(quizData) {
-    currentPlayingQuiz = quizData;
+  // --- 連続プレイ (連続出題) システム ---
+  window.startContinuousPlay = function(quizArray, startIndex) {
+    activePlaylist = quizArray;
+    currentPlaylistIndex = startIndex;
     showScreen('screenPlay');
+    renderCurrentPlayQuiz();
+  }
+
+  function renderCurrentPlayQuiz() {
+    const quizData = activePlaylist[currentPlaylistIndex];
+    document.getElementById('progressIndicator').textContent = `問題 ${currentPlaylistIndex + 1} / ${activePlaylist.length}`;
     document.getElementById('playTitle').textContent = quizData.title;
+    
     const grid = document.getElementById('playGrid');
     grid.className = `grid grid-${quizData.gridSize}`;
     grid.innerHTML = '';
@@ -732,19 +796,26 @@
   }
 
   function verifyPlay() {
-    if (!currentPlayingQuiz) return;
+    const quizData = activePlaylist[currentPlaylistIndex];
     const tiles = document.querySelectorAll('#playGrid .tile');
     let isCorrect = true;
     tiles.forEach((tile, index) => {
       const isSelected = tile.classList.contains('selected');
-      const shouldBeSelected = currentPlayingQuiz.answers[index];
+      const shouldBeSelected = quizData.answers[index];
       if (isSelected !== shouldBeSelected) isCorrect = false;
     });
 
     if (isCorrect) {
-      alert("【判定成功】あなたは人間です！認証に成功しました。");
+      if (currentPlaylistIndex + 1 < activePlaylist.length) {
+        alert("正解！次の問題に進みます。");
+        currentPlaylistIndex++;
+        renderCurrentPlayQuiz();
+      } else {
+        alert("【全問クリア成功】すべての認証を突破しました！あなたは人間です。");
+        showScreen('screenHome');
+      }
     } else {
-      alert("【判定失敗】人間と認められませんでした。選択をやり直してください。");
+      alert("【判定失敗】選択が違います。もう一度選び直してください。");
     }
   }
 </script>
