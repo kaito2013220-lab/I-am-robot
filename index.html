@@ -209,34 +209,25 @@
     <div style="display: flex; flex-direction: column; gap: 12px;">
       <button class="btn" onclick="openAuthModal('login')">ログイン</button>
       <button class="btn btn-secondary" onclick="openAuthModal('register')">新規登録</button>
-      <button class="btn btn-success" onclick="showScreen('screenPublicHub')">公開クイズをプレイ</button>
+      <button class="btn btn-success" onclick="openAlbum('cloud')">公開クイズをプレイ (みんなの広場)</button>
     </div>
   </div>
 
-  <!-- 2. ログイン後メイン画面 (シーンB) -->
+  <!-- 2. ログイン後メイン画面 (シーンB) - 友達からのクイズ受け取りもここに配置 -->
   <div id="screenDashboard" class="screen">
     <h1>マイダッシュボード</h1>
     <div class="user-welcome" id="welcomeUserText">ようこそ、ゲストさん</div>
 
-    <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 12px;">
+    <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
       <button class="btn" onclick="showScreen('screenCreate')">新規クイズ作成</button>
       <button class="btn btn-secondary" onclick="openAlbum('local')">ｍｙアルバム (自分の作品)</button>
-      <button class="btn btn-success" onclick="showScreen('screenPublicHub')">公開クイズをプレイ</button>
-      <button class="btn btn-danger" style="width:100%; margin-top:20px;" onclick="handleLogout()">ログアウト</button>
+      <button class="btn btn-warning" onclick="openAlbum('direct')">📬 友達からのクイズ (自分宛て)</button>
+      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (全体公開クイズ)</button>
+      <button class="btn btn-danger" style="width:100%; margin-top:10px;" onclick="handleLogout()">ログアウト</button>
     </div>
   </div>
 
-  <!-- 3. 公開クイズ選択ハブ画面 (みんなの広場 ＆ 友達から) -->
-  <div id="screenPublicHub" class="screen">
-    <h2>公開クイズをプレイ</h2>
-    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
-      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (全体公開)</button>
-      <button class="btn btn-warning" onclick="openAlbum('direct')">友達からのクイズ</button>
-      <button class="btn btn-secondary" onclick="goBackHome()" style="margin-top: 20px;">戻る</button>
-    </div>
-  </div>
-
-  <!-- 4. クイズ作成画面 -->
+  <!-- 3. クイズ作成画面 -->
   <div id="screenCreate" class="screen">
     <h2>クイズ作成</h2>
     
@@ -274,7 +265,7 @@
     <button class="btn btn-secondary" onclick="showScreen('screenDashboard')">ダッシュボードへ戻る</button>
   </div>
 
-  <!-- 5. アルバム / 一覧画面 -->
+  <!-- 4. アルバム / 一覧画面 -->
   <div id="screenAlbum" class="screen">
     <h2 id="albumTitle">アルバム</h2>
     <div id="batchActionArea" style="margin-bottom: 10px; display:none;">
@@ -284,7 +275,7 @@
     <button class="btn btn-secondary" onclick="goBackHome()" style="margin-top: 16px;">ホームへ戻る</button>
   </div>
 
-  <!-- 6. クイズ挑戦画面 -->
+  <!-- 5. クイズ挑戦画面 -->
   <div id="screenPlay" class="screen">
     <div id="progressIndicator" style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; text-align: right;"></div>
     <div class="recaptcha-card">
@@ -376,7 +367,6 @@
   let isRegisterMode = false;
   let targetQuizzesForPublish = [];
 
-  // ログイン状態が変わったときのシーン切り替え制御
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
     const welcomeUserText = document.getElementById('welcomeUserText');
@@ -384,6 +374,10 @@
     if (user) {
       const nick = user.email.split('@')[0];
       welcomeUserText.textContent = `👤 ログイン中: ${nick}`;
+      // 自動でダッシュボードシーンに切り替え
+      showScreen('screenDashboard');
+    } else {
+      showScreen('screenLanding');
     }
   });
 
@@ -413,16 +407,12 @@
         alert("ログインしました！");
       }
       closeAuthModal();
-      // ログイン成功したらシーンを丸ごと「ダッシュボード（ログイン後画面）」に切り替える
-      showScreen('screenDashboard');
     } catch (e) { alert("認証エラー: " + e.message); }
   }
 
   window.handleLogout = async function() {
     await signOut(auth);
     alert("ログアウトしました。");
-    // ログアウトしたら「ログイン前のトップ画面」に戻る
-    showScreen('screenLanding');
   }
 
   window.goBackHome = function() {
@@ -481,7 +471,7 @@
           answers: quiz.answers,
           author: authorName,
           difficulty: difficulty,
-          targetUser: targetUser || "",
+          targetUser: targetUser || "", // 空欄なら全体公開、名前があればその人宛て
           createdAt: Date.now()
         });
       }
@@ -491,7 +481,7 @@
     } catch (e) { alert("送信エラー: " + e.message); }
   }
 
-  // --- クラウド取得 ---
+  // --- クラウド取得 (みんなの広場 ＆ 友達からのクイズ) ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
@@ -507,10 +497,12 @@
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
+          // 全体公開のものだけ
           if (!data.targetUser || data.targetUser === "") {
             quizzes.push(data);
           }
         } else if (mode === 'direct') {
+          // ログイン必須 ＆ 自分宛て（targetUserが自分のユーザー名と完全一致）のものだけ
           if (myName && data.targetUser === myName) {
             quizzes.push(data);
           }
@@ -518,7 +510,7 @@
       });
 
       if (quizzes.length === 0) {
-        listContainer.innerHTML = `<p style="text-align:center; color:#888;">${mode === 'direct' ? 'あなた宛てのクイズはありません。' : 'みんなの広場に公開クイズがありません。'}</p>`;
+        listContainer.innerHTML = `<p style="text-align:center; color:#888;">${mode === 'direct' ? 'あなた宛てのクイズはまだ届いていません。' : 'みんなの広場に公開クイズがありません。'}</p>`;
         return;
       }
 
@@ -542,7 +534,7 @@
     }
   }
 
-  // --- ログインユーザーのアルバム読み込み ---
+  // --- ログインユーザーの自分の作品アルバム ---
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'block';
@@ -807,7 +799,7 @@
       document.getElementById('albumTitle').textContent = "みんなの広場 (公開クイズ)";
       window.loadCloudQuizzes('cloud');
     } else if (mode === 'direct') {
-      document.getElementById('albumTitle').textContent = "友達からのクイズ";
+      document.getElementById('albumTitle').textContent = "📬 友達からのクイズ (自分宛て)";
       window.loadCloudQuizzes('direct');
     }
   }
