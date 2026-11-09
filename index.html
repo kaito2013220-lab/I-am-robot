@@ -51,6 +51,7 @@
     .btn-success { background-color: #28a745; }
     .btn-success:hover { background-color: #218838; }
     .btn-danger { background-color: #dc3545; padding: 6px 10px; font-size: 12px; width: auto; }
+    .btn-disabled { background-color: #cccccc !important; cursor: not-allowed; }
 
     /* ログイン状態バー */
     .user-bar {
@@ -58,7 +59,7 @@
       justify-content: space-between;
       align-items: center;
       background: #e9ecef;
-      padding: 6px 10px;
+      padding: 8px 12px;
       border-radius: 4px;
       font-size: 12px;
       margin-bottom: 12px;
@@ -201,7 +202,7 @@
 
   <!-- ログイン状態表示バー -->
   <div class="user-bar">
-    <span id="loginUserStatus">未ログイン</span>
+    <span id="loginUserStatus">状態確認中...</span>
     <button id="authBtn" class="btn btn-secondary" style="width:auto; padding:3px 8px; margin:0; font-size:11px;" onclick="openAuthModal()">ログイン / 登録</button>
   </div>
 
@@ -209,14 +210,19 @@
   <div id="screenHome" class="screen active">
     <h1>reCAPTCHA Maker</h1>
     <div style="margin-top: 20px;">
-      <button class="btn" onclick="showScreen('screenCreate')">新規クイズ作成</button>
-      <button class="btn btn-secondary" onclick="openAlbum('local')">ｍｙアルバム (端末内)</button>
-      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (クラウド)</button>
+      <!-- 未ログイン時はログインモーダルへ導くガード付き機能 -->
+      <button class="btn" onclick="requireLogin(() => showScreen('screenCreate'))">新規クイズ作成 🔒</button>
+      <button class="btn btn-secondary" onclick="requireLogin(() => openAlbum('local'))">ｍｙアルバム (自分の作品) 🔒</button>
+      
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;">
+      
+      <!-- 誰でもプレイ可能なパブリック機能 -->
+      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (公開クイズ)</button>
       <button class="btn btn-secondary" style="background-color: #e0a800; color: #fff;" onclick="openAlbum('direct')">友達からのクイズ</button>
     </div>
   </div>
 
-  <!-- 2. クイズ作成画面 -->
+  <!-- 2. クイズ作成画面（要ログイン） -->
   <div id="screenCreate" class="screen">
     <h2>クイズ作成</h2>
     
@@ -251,7 +257,7 @@
       <div id="createGrid" class="grid grid-9"></div>
     </div>
 
-    <button class="btn btn-secondary" style="margin-top: 12px;" onclick="saveQuizLocal()">端末に保存</button>
+    <button class="btn btn-secondary" style="margin-top: 12px;" onclick="saveQuizLocal()">自分のアルバムに保存</button>
     <button class="btn btn-secondary" onclick="showScreen('screenHome')">ホームへ戻る</button>
   </div>
 
@@ -265,7 +271,7 @@
     <button class="btn btn-secondary" onclick="showScreen('screenHome')" style="margin-top: 16px;">ホームへ戻る</button>
   </div>
 
-  <!-- 4. クイズ挑戦画面 (連続プレイ対応) -->
+  <!-- 4. クイズ挑戦画面 -->
   <div id="screenPlay" class="screen">
     <div id="progressIndicator" style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; text-align: right;"></div>
     <div class="recaptcha-card">
@@ -332,11 +338,11 @@
   </div>
 </div>
 
-<!-- Firebase SDK & アプリロジック -->
+<!-- Firebase SDK & ロジック -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyA18odOYgguPRYtcAUCc5qVky0O6R0iflk",
@@ -352,10 +358,14 @@
   const auth = getAuth(app);
   const db = getFirestore(app);
 
+  // ログイン永続化の設定（コード更新やブラウザ再起動でもログインを保持）
+  setPersistence(auth, browserLocalPersistence);
+
   let currentUser = null;
   let isRegisterMode = false;
-  let targetQuizzesForPublish = []; // 単体または一括公開用のデータ保持
+  let targetQuizzesForPublish = [];
 
+  // ログイン監視（状態復元）
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
     const statusEl = document.getElementById('loginUserStatus');
@@ -366,11 +376,21 @@
       authBtn.textContent = "ログアウト";
       authBtn.onclick = handleLogout;
     } else {
-      statusEl.textContent = "未ログイン";
+      statusEl.textContent = "未ログイン (閲覧専用)";
       authBtn.textContent = "ログイン / 登録";
       authBtn.onclick = openAuthModal;
     }
   });
+
+  // 未ログイン時のアクセス制御用ガード関数
+  window.requireLogin = function(actionCallback) {
+    if (!currentUser) {
+      alert("クイズの作成や編集済み作品の確認にはアカウントログインが必要です。");
+      openAuthModal();
+    } else {
+      actionCallback();
+    }
+  }
 
   window.openAuthModal = function() { document.getElementById('authModal').classList.add('active'); }
   window.closeAuthModal = function() { document.getElementById('authModal').classList.remove('active'); }
@@ -388,30 +408,31 @@
     try {
       if (isRegisterMode) {
         await createUserWithEmailAndPassword(auth, dummyEmail, pass);
-        alert("アカウントを作成し、ログインしました！");
+        alert("アカウントを作成し、自動ログインしました！");
       } else {
         await signInWithEmailAndPassword(auth, dummyEmail, pass);
         alert("ログインしました！");
       }
       closeAuthModal();
-    } catch (e) { alert("エラー: " + e.message); }
+    } catch (e) { alert("認証エラー: " + e.message); }
   }
 
   async function handleLogout() {
     await signOut(auth);
-    alert("ログアウトしました。");
+    alert("ログアウトしました。未ログインモードに戻ります。");
+    showScreen('screenHome');
   }
 
-  // --- 公開・送信モーダル制御 ---
+  // --- 公開・送信制御 ---
   window.openPublishModalForQuiz = function(quiz) {
-    if (!currentUser) { alert("公開・送信するにはログインが必要です。"); openAuthModal(); return; }
+    if (!currentUser) { openAuthModal(); return; }
     targetQuizzesForPublish = [quiz];
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('publishModal').classList.add('active');
   }
 
   window.openBatchPublishModal = function() {
-    if (!currentUser) { alert("一括公開するにはログインが必要です。"); openAuthModal(); return; }
+    if (!currentUser) { openAuthModal(); return; }
     const checkboxes = document.querySelectorAll('.quiz-select-checkbox:checked');
     if (checkboxes.length === 0) { alert("公開するクイズを選択してください。"); return; }
     if (checkboxes.length < 2 || checkboxes.length > 15) {
@@ -419,7 +440,8 @@
       return;
     }
 
-    const localQuizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
+    const userKey = `quizzes_${currentUser.uid}`;
+    const localQuizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
     targetQuizzesForPublish = [];
     checkboxes.forEach(cb => {
       const id = parseInt(cb.value, 10);
@@ -449,19 +471,17 @@
           answers: quiz.answers,
           author: authorName,
           difficulty: difficulty,
-          targetUser: targetUser || "", // 空欄なら全体、文字があれば特定アカウント宛
+          targetUser: targetUser || "",
           createdAt: Date.now()
         });
       }
       alert(`${targetQuizzesForPublish.length}件のクイズを公開・送信しました！`);
       closePublishModal();
       showScreen('screenHome');
-    } catch (e) {
-      alert("送信エラー: " + e.message);
-    }
+    } catch (e) { alert("送信エラー: " + e.message); }
   }
 
-  // --- クラウド取得 (みんなの広場 ＆ 友達からのクイズ) ---
+  // --- クラウド取得 (パブリック ＆ ダイレクト) ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
@@ -477,12 +497,10 @@
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
-          // 全体公開（targetUserがないか空のもの）
           if (!data.targetUser || data.targetUser === "") {
             quizzes.push(data);
           }
         } else if (mode === 'direct') {
-          // 自分宛てに送信されたもの
           if (myName && data.targetUser === myName) {
             quizzes.push(data);
           }
@@ -490,7 +508,7 @@
       });
 
       if (quizzes.length === 0) {
-        listContainer.innerHTML = `<p style="text-align:center; color:#888;">${mode === 'direct' ? 'あなた宛てのクイズはありません。' : 'みんなの広場にクイズがありません。'}</p>';
+        listContainer.innerHTML = `<p style="text-align:center; color:#888;">${mode === 'direct' ? 'あなた宛てのクイズはありません。' : 'みんなの広場に公開クイズがありません。'}</p>`;
         return;
       }
 
@@ -513,16 +531,72 @@
       listContainer.innerHTML = '<p style="text-align:center; color:red;">読み込みエラーが発生しました。</p>';
     }
   }
+
+  // --- ログインユーザーごとのローカル作品読み込み ---
+  window.loadUserLocalQuizzes = function() {
+    const listContainer = document.getElementById('quizList');
+    document.getElementById('batchActionArea').style.display = 'block';
+
+    if (!currentUser) {
+      listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインすると作成したクイズを管理できます。</p>';
+      return;
+    }
+
+    const userKey = `quizzes_${currentUser.uid}`;
+    const quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
+    listContainer.innerHTML = '';
+    
+    if (quizzes.length === 0) {
+      document.getElementById('batchActionArea').style.display = 'none';
+      listContainer.innerHTML = '<p style="text-align:center; color:#888;">まだ作成したクイズがありません。「新規クイズ作成」から保存してください。</p>';
+      return;
+    }
+
+    quizzes.forEach((quiz) => {
+      const item = document.createElement('div');
+      item.className = 'quiz-list-item';
+      item.innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">
+          <div><strong>${quiz.title}</strong> (${quiz.gridSize}マス)</div>
+        </div>
+        <div>
+          <button class="btn" style="width:auto; padding:6px 10px; margin:0 2px 0 0;" onclick='startContinuousPlay([${JSON.stringify(quiz)}], 0)'>挑戦</button>
+          <button class="btn btn-success" style="width:auto; padding:6px 8px; margin:0 2px 0 0; background:#17a2b8;" onclick='openPublishModalForQuiz(${JSON.stringify(quiz)})'>公開</button>
+          <button class="btn btn-danger" onclick="deleteLocalQuiz(${quiz.id})">削除</button>
+        </div>
+      `;
+      listContainer.appendChild(item);
+    });
+  }
+
+  window.saveUserQuizLocal = function(title, gridSize, images, answers) {
+    if (!currentUser) return;
+    const userKey = `quizzes_${currentUser.uid}`;
+    const quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
+    quizzes.push({ id: Date.now(), title, gridSize, images, answers });
+    localStorage.setItem(userKey, JSON.stringify(quizzes));
+    alert('自分のアルバムに保存しました！');
+    showScreen('screenHome');
+  }
+
+  window.deleteLocalQuiz = function(id) {
+    if (!currentUser) return;
+    const userKey = `quizzes_${currentUser.uid}`;
+    let quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
+    quizzes = quizzes.filter(q => q.id !== id);
+    localStorage.setItem(userKey, JSON.stringify(quizzes));
+    loadUserLocalQuizzes();
+  }
 </script>
 
-<!-- アプリのベースロジック（UI・端末内保存・連続プレイ制御） -->
+<!-- UI・共通描画スクリプト -->
 <script>
   let currentGridSize = 9;
   let tileImages = [];
   let correctAnswers = [];
   let selectedTileIndex = null;
 
-  // 連続プレイ用変数
   let activePlaylist = [];
   let currentPlaylistIndex = 0;
 
@@ -711,63 +785,23 @@
     if (tileImages.some(img => img === null)) { alert('すべてのマスに画像を設定してください。'); return; }
     if (!correctAnswers.some(ans => ans === true)) { alert('少なくとも1つ以上の正解マスを設定してください。'); return; }
 
-    const quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
-    quizzes.push({ id: Date.now(), title, gridSize: currentGridSize, images: tileImages, answers: correctAnswers });
-    localStorage.setItem('my_recaptcha_quizzes', JSON.stringify(quizzes));
-    alert('端末のアルバムに保存しました！');
-    showScreen('screenHome');
+    window.saveUserQuizLocal(title, currentGridSize, tileImages, correctAnswers);
   }
 
   function openAlbum(mode) {
     showScreen('screenAlbum');
     if (mode === 'local') {
-      document.getElementById('albumTitle').textContent = "ｍｙアルバム (端末内)";
-      loadLocalQuizzes();
+      document.getElementById('albumTitle').textContent = "ｍｙアルバム (自分の作品)";
+      window.loadUserLocalQuizzes();
     } else if (mode === 'cloud') {
-      document.getElementById('albumTitle').textContent = "みんなの広場 (クラウド)";
-      loadCloudQuizzes('cloud');
+      document.getElementById('albumTitle').textContent = "みんなの広場 (公開クイズ)";
+      window.loadCloudQuizzes('cloud');
     } else if (mode === 'direct') {
       document.getElementById('albumTitle').textContent = "友達からのクイズ";
-      loadCloudQuizzes('direct');
+      window.loadCloudQuizzes('direct');
     }
   }
 
-  function loadLocalQuizzes() {
-    const listContainer = document.getElementById('quizList');
-    document.getElementById('batchActionArea').style.display = 'block';
-    const quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
-    listContainer.innerHTML = '';
-    if (quizzes.length === 0) {
-      document.getElementById('batchActionArea').style.display = 'none';
-      listContainer.innerHTML = '<p style="text-align:center; color:#888;">保存されたクイズがありません。</p>';
-      return;
-    }
-    quizzes.forEach((quiz) => {
-      const item = document.createElement('div');
-      item.className = 'quiz-list-item';
-      item.innerHTML = `
-        <div style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">
-          <div><strong>${quiz.title}</strong> (${quiz.gridSize}マス)</div>
-        </div>
-        <div>
-          <button class="btn" style="width:auto; padding:6px 10px; margin:0 2px 0 0;" onclick='startContinuousPlay([${JSON.stringify(quiz)}], 0)'>挑戦</button>
-          <button class="btn btn-success" style="width:auto; padding:6px 8px; margin:0 2px 0 0; background:#17a2b8;" onclick='openPublishModalForQuiz(${JSON.stringify(quiz)})'>公開</button>
-          <button class="btn btn-danger" onclick="deleteLocalQuiz(${quiz.id})">削除</button>
-        </div>
-      `;
-      listContainer.appendChild(item);
-    });
-  }
-
-  function deleteLocalQuiz(id) {
-    let quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
-    quizzes = quizzes.filter(q => q.id !== id);
-    localStorage.setItem('my_recaptcha_quizzes', JSON.stringify(quizzes));
-    loadLocalQuizzes();
-  }
-
-  // --- 連続プレイ (連続出題) システム ---
   window.startContinuousPlay = function(quizArray, startIndex) {
     activePlaylist = quizArray;
     currentPlaylistIndex = startIndex;
