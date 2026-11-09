@@ -213,7 +213,7 @@
     </div>
   </div>
 
-  <!-- 2. ログイン後メイン画面 (シーンB) - 友達からのクイズ受け取りもここに配置 -->
+  <!-- 2. ログイン後メイン画面 (シーンB) -->
   <div id="screenDashboard" class="screen">
     <h1>マイダッシュボード</h1>
     <div class="user-welcome" id="welcomeUserText">ようこそ、ゲストさん</div>
@@ -345,7 +345,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyA18odOYgguPRYtcAUCc5qVky0O6R0iflk",
@@ -374,7 +374,6 @@
     if (user) {
       const nick = user.email.split('@')[0];
       welcomeUserText.textContent = `👤 ログイン中: ${nick}`;
-      // 自動でダッシュボードシーンに切り替え
       showScreen('screenDashboard');
     } else {
       showScreen('screenLanding');
@@ -464,21 +463,54 @@
 
     try {
       for (let quiz of targetQuizzesForPublish) {
-        await addDoc(collection(db, "quizzes"), {
+        // Firestoreに保存し、生成されたドキュメントIDをローカル側にも紐付けておくことで後から非公開（削除）できるようにする
+        const docRef = await addDoc(collection(db, "quizzes"), {
           title: quiz.title,
           gridSize: quiz.gridSize,
           images: quiz.images,
           answers: quiz.answers,
           author: authorName,
           difficulty: difficulty,
-          targetUser: targetUser || "", // 空欄なら全体公開、名前があればその人宛て
+          targetUser: targetUser || "",
           createdAt: Date.now()
         });
+
+        // 端末のローカルデータにもクラウドID(cloudId)を記録しておく
+        quiz.cloudId = docRef.id;
       }
+
+      // ローカルストレージを更新してクラウドIDを保存
+      const userKey = `quizzes_${currentUser.uid}`;
+      localStorage.setItem(userKey, JSON.stringify(JSON.parse(localStorage.getItem(userKey) || '[]').map(q => {
+        const matched = targetQuizzesForPublish.find(t => t.id === q.id);
+        return matched ? { ...q, cloudId: matched.cloudId } : q;
+      })));
+
       alert(`${targetQuizzesForPublish.length}件のクイズを公開・送信しました！`);
       closePublishModal();
       showScreen('screenDashboard');
     } catch (e) { alert("送信エラー: " + e.message); }
+  }
+
+  // --- クラウドから非公開にする（削除する）機能 ---
+  window.unpublishQuiz = async function(cloudId, localId) {
+    if (!cloudId) { alert("このクイズはまだクラウドに公開されていません。"); return; }
+    if (!confirm("このクイズをみんなの広場から非公開（削除）にしますか？")) return;
+
+    try {
+      await deleteDoc(doc(db, "quizzes", cloudId));
+      
+      // ローカル側のcloudIdもクリアする
+      const userKey = `quizzes_${currentUser.uid}`;
+      let quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
+      quizzes = quizzes.map(q => q.id === localId ? { ...q, cloudId: null } : q);
+      localStorage.setItem(userKey, JSON.stringify(quizzes));
+
+      alert("クイズを非公開にしました。");
+      window.loadUserLocalQuizzes();
+    } catch (e) {
+      alert("非公開エラー: " + e.message);
+    }
   }
 
   // --- クラウド取得 (みんなの広場 ＆ 友達からのクイズ) ---
@@ -497,12 +529,10 @@
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
-          // 全体公開のものだけ
           if (!data.targetUser || data.targetUser === "") {
             quizzes.push(data);
           }
         } else if (mode === 'direct') {
-          // ログイン必須 ＆ 自分宛て（targetUserが自分のユーザー名と完全一致）のものだけ
           if (myName && data.targetUser === myName) {
             quizzes.push(data);
           }
@@ -534,7 +564,7 @@
     }
   }
 
-  // --- ログインユーザーの自分の作品アルバム ---
+  // --- ログインユーザーの自分の作品アルバム（非公開ボタン対応） ---
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'block';
@@ -555,17 +585,24 @@
     }
 
     quizzes.forEach((quiz) => {
+      const isPublished = Boolean(quiz.cloudId);
       const item = document.createElement('div');
       item.className = 'quiz-list-item';
       item.innerHTML = `
         <div style="display:flex; align-items:center; gap:8px;">
           <input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">
-          <div><strong>${quiz.title}</strong> (${quiz.gridSize}マス)</div>
+          <div>
+            <strong>${quiz.title}</strong> (${quiz.gridSize}マス)<br>
+            <span style="font-size:11px; color:${isPublished ? 'green' : '#888'};">${isPublished ? '🌐 公開中' : '🔒 未公開'}</span>
+          </div>
         </div>
-        <div>
-          <button class="btn" style="width:auto; padding:6px 10px; margin:0 2px 0 0;" onclick='startContinuousPlay([${JSON.stringify(quiz)}], 0)'>挑戦</button>
-          <button class="btn btn-success" style="width:auto; padding:6px 8px; margin:0 2px 0 0; background:#17a2b8;" onclick='openPublishModalForQuiz(${JSON.stringify(quiz)})'>公開</button>
-          <button class="btn btn-danger" onclick="deleteLocalQuiz(${quiz.id})">削除</button>
+        <div style="display:flex; gap:4px; align-items:center;">
+          <button class="btn" style="width:auto; padding:6px 8px; margin:0; font-size:12px;" onclick='startContinuousPlay([${JSON.stringify(quiz)}], 0)'>挑戦</button>
+          ${isPublished 
+            ? `<button class="btn btn-warning" style="width:auto; padding:6px 8px; margin:0; font-size:12px;" onclick="unpublishQuiz('${quiz.cloudId}', ${quiz.id})">非公開</button>`
+            : `<button class="btn btn-success" style="width:auto; padding:6px 8px; margin:0; font-size:12px; background:#17a2b8;" onclick='openPublishModalForQuiz(${JSON.stringify(quiz)})'>公開</button>`
+          }
+          <button class="btn btn-danger" style="margin:0; font-size:12px;" onclick="deleteLocalQuiz(${quiz.id}, '${quiz.cloudId || ''}')">削除</button>
         </div>
       `;
       listContainer.appendChild(item);
@@ -576,17 +613,27 @@
     if (!currentUser) return;
     const userKey = `quizzes_${currentUser.uid}`;
     const quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
-    quizzes.push({ id: Date.now(), title, gridSize, images, answers });
+    quizzes.push({ id: Date.now(), title, gridSize, images, answers, cloudId: null });
     localStorage.setItem(userKey, JSON.stringify(quizzes));
     alert('自分のアルバムに保存しました！');
     showScreen('screenDashboard');
   }
 
-  window.deleteLocalQuiz = function(id) {
+  window.deleteLocalQuiz = async function(localId, cloudId) {
     if (!currentUser) return;
+    if (!confirm("このクイズを端末のアルバムから削除しますか？（公開中の場合はクラウドからも削除されます）")) return;
+
+    if (cloudId) {
+      try {
+        await deleteDoc(doc(db, "quizzes", cloudId));
+      } catch (e) {
+        console.error("クラウド側の削除失敗:", e);
+      }
+    }
+
     const userKey = `quizzes_${currentUser.uid}`;
     let quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
-    quizzes = quizzes.filter(q => q.id !== id);
+    quizzes = quizzes.filter(q => q.id !== localId);
     localStorage.setItem(userKey, JSON.stringify(quizzes));
     loadUserLocalQuizzes();
   }
@@ -832,7 +879,7 @@
   }
 
   function verifyPlay() {
-    const quizData = activePlaylist[currentPlaylistIndex];
+    const quizData = activePlaylist[currentPlaylistStatus = currentPlaylistIndex];
     const tiles = document.querySelectorAll('#playGrid .tile');
     let isCorrect = true;
     tiles.forEach((tile, index) => {
