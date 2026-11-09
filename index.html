@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>理不尽 reCAPTCHA クラウド広場</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 420px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      padding: 16px;
+      min-height: 540px;
+      position: relative;
+    }
+
+    h1, h2 { text-align: center; color: #333; margin-top: 0; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ボタン共通 */
+    .btn {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+      text-align: center;
+    }
+    .btn:hover { background-color: #3367d6; }
+    .btn-secondary { background-color: #6c757d; }
+    .btn-secondary:hover { background-color: #5a6268; }
+    .btn-success { background-color: #28a745; }
+    .btn-success:hover { background-color: #218838; }
+    .btn-danger { background-color: #dc3545; padding: 6px 10px; font-size: 12px; width: auto; }
+
+    /* ログイン状態バー */
+    .user-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #e9ecef;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    /* reCAPTCHA カード構造 */
+    .recaptcha-card {
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 10px;
+      background: #fff;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .recaptcha-header {
+      background: #4285f4;
+      color: white;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .recaptcha-header p { margin: 0; font-size: 12px; }
+    .recaptcha-header h3 { margin: 4px 0 0 0; font-size: 18px; }
+
+    /* グリッドレイアウト */
+    .grid {
+      display: grid;
+      gap: 2px;
+      background: #ccc;
+      border: 1px solid #ccc;
+    }
+    .grid-9 { grid-template-columns: repeat(3, 1fr); }
+    .grid-16 { grid-template-columns: repeat(4, 1fr); }
+
+    .tile {
+      aspect-ratio: 1;
+      background-color: #eee;
+      position: relative;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+    }
+    .tile img { width: 100%; height: 100%; object-fit: cover; }
+    .tile.blank::after {
+      content: "タップして追加";
+      font-size: 10px;
+      color: #777;
+      text-align: center;
+      padding: 2px;
+    }
+    .tile.correct-answer::before {
+      content: "正解";
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      background: #28a745;
+      color: white;
+      font-size: 10px;
+      padding: 2px 4px;
+      border-radius: 2px;
+      z-index: 2;
+    }
+    .tile.selected::after {
+      content: "✓";
+      position: absolute;
+      inset: 0;
+      background: rgba(66, 133, 244, 0.4);
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 3;
+    }
+
+    .mode-select {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .mode-select label {
+      flex: 1;
+      font-size: 13px;
+      background: #eee;
+      padding: 8px 4px;
+      border-radius: 4px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .quiz-list-item {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #fafafa;
+    }
+
+    /* モーダル */
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: #fff;
+      padding: 16px;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 340px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .crop-canvas-container {
+      width: 260px;
+      height: 260px;
+      border: 2px dashed #4285f4;
+      overflow: hidden;
+      position: relative;
+      touch-action: none;
+      background: #333;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ログイン状態表示バー -->
+  <div class="user-bar">
+    <span id="loginUserStatus">未ログイン</span>
+    <button id="authBtn" class="btn btn-secondary" style="width:auto; padding:3px 8px; margin:0; font-size:11px;" onclick="openAuthModal()">ログイン / 登録</button>
+  </div>
+
+  <!-- 1. ホーム画面 -->
+  <div id="screenHome" class="screen active">
+    <h1>reCAPTCHA Maker</h1>
+    <div style="margin-top: 40px;">
+      <button class="btn" onclick="showScreen('screenCreate')">新規クイズ作成</button>
+      <button class="btn btn-secondary" onclick="openAlbum('local')">ｍｙアルバム (端末内)</button>
+      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (クラウド)</button>
+    </div>
+  </div>
+
+  <!-- 2. クイズ作成画面 -->
+  <div id="screenCreate" class="screen">
+    <h2>クイズ作成</h2>
+    
+    <label style="font-size: 13px; font-weight: bold;">お題:</label>
+    <input type="text" id="createTitle" placeholder="例: 本物のタピオカ" style="width: 100%; padding: 8px; margin: 4px 0 12px 0;">
+
+    <label style="font-size: 13px; font-weight: bold;">マス目数:</label>
+    <div class="mode-select">
+      <label><input type="radio" name="gridSize" value="9" checked onchange="initBlankGrid()"> 9マス (3x3)</label>
+      <label><input type="radio" name="gridSize" value="16" onchange="initBlankGrid()"> 16マス (4x4)</label>
+    </div>
+
+    <label style="font-size: 13px; font-weight: bold;">設定モード:</label>
+    <div class="mode-select">
+      <label><input type="radio" name="uploadType" value="individual" checked onchange="toggleUploadMode()"> マス指定</label>
+      <label><input type="radio" name="uploadType" value="single" onchange="toggleUploadMode()"> 1枚を分割</label>
+    </div>
+
+    <div id="singleFileInputArea" style="display:none; margin-bottom:12px;">
+      <input type="file" id="fileInputSingle" accept="image/*" onchange="handleSingleImageSelect(event)">
+    </div>
+    <input type="file" id="fileInputTile" accept="image/*" style="display:none;" onchange="handleTileImageSelect(event)">
+
+    <p style="font-size: 11px; color: #666; margin: 2px 0 6px 0;">※マスをタップして正解/不正解を切り替え</p>
+
+    <!-- プレビュー枠 -->
+    <div class="recaptcha-card">
+      <div class="recaptcha-header">
+        <p>以下の画像をすべて選択してください：</p>
+        <h3 id="previewTitleDisplay">お題がここに入ります</h3>
+      </div>
+      <div id="createGrid" class="grid grid-9"></div>
+    </div>
+
+    <button class="btn btn-secondary" style="margin-top: 12px;" onclick="saveQuizLocal()">端末に保存</button>
+    <button class="btn btn-success" onclick="saveQuizCloud()">みんなの広場に公開</button>
+    <button class="btn btn-secondary" onclick="showScreen('screenHome')">ホームへ戻る</button>
+  </div>
+
+  <!-- 3. アルバム / 一覧画面 -->
+  <div id="screenAlbum" class="screen">
+    <h2 id="albumTitle">アルバム</h2>
+    <div id="quizList"></div>
+    <button class="btn btn-secondary" onclick="showScreen('screenHome')" style="margin-top: 16px;">ホームへ戻る</button>
+  </div>
+
+  <!-- 4. クイズ挑戦画面 -->
+  <div id="screenPlay" class="screen">
+    <div class="recaptcha-card">
+      <div class="recaptcha-header">
+        <p>以下の画像をすべて選択してください：</p>
+        <h3 id="playTitle"></h3>
+      </div>
+      <div id="playGrid" class="grid"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+        <span style="font-size: 11px; color: #666;">reCAPTCHA</span>
+        <button class="btn" style="width: auto; padding: 6px 16px; margin:0;" onclick="verifyPlay()">確認</button>
+      </div>
+    </div>
+    <button class="btn btn-secondary" onclick="showScreen('screenHome')" style="margin-top: 16px;">ホームへ戻る</button>
+  </div>
+
+</div>
+
+<!-- 認証モーダル (ログイン / 新規登録) -->
+<div id="authModal" class="modal">
+  <div class="modal-content">
+    <h3 id="authModalTitle">アカウントログイン</h3>
+    <input type="text" id="authUsername" placeholder="ニックネーム (ID)" style="width:100%; padding:8px; margin:6px 0;">
+    <input type="password" id="authPassword" placeholder="パスワード (6文字以上)" style="width:100%; padding:8px; margin:6px 0;">
+    <button class="btn" onclick="handleAuthSubmit()" style="margin-top:10px;">実行</button>
+    <p id="authSwitchText" style="font-size:12px; color:#4285f4; cursor:pointer; text-align:center; margin-top:8px;" onclick="toggleAuthMode()">アカウントをお持ちでない方は新規登録</p>
+    <button class="btn btn-secondary" onclick="closeAuthModal()" style="margin-top:4px;">閉じる</button>
+  </div>
+</div>
+
+<!-- トリミング / 縮小調整用モーダル -->
+<div id="cropModal" class="modal">
+  <div class="modal-content">
+    <h3>位置・縮小調整</h3>
+    <div class="crop-canvas-container" id="canvasContainer">
+      <canvas id="cropCanvas" width="260" height="260"></canvas>
+    </div>
+    <div style="width:100%; margin:10px 0;">
+      <input type="range" id="zoomRange" min="0.2" max="3" step="0.05" value="1" oninput="drawCropCanvas()" style="width:100%;">
+    </div>
+    <button class="btn" onclick="applyCrop()">確定</button>
+    <button class="btn btn-secondary" onclick="closeCropModal()">キャンセル</button>
+  </div>
+</div>
+
+<!-- Firebase SDK のインポート & アプリのロジック -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  // あなたのFirebase設定情報
+  const firebaseConfig = {
+    apiKey: "AIzaSyA18odOYgguPRYtcAUCc5qVky0O6R0iflk",
+    authDomain: "captcha-56f12.firebaseapp.com",
+    projectId: "captcha-56f12",
+    storageBucket: "captcha-56f12.firebasestorage.app",
+    messagingSenderId: "742522962205",
+    appId: "1:742522962205:web:5e507482725fd1ae1b21f4",
+    measurementId: "G-39BG22BCG6"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let currentUser = null;
+  let isRegisterMode = false;
+
+  // 認証状態の監視
+  onAuthStateChanged(auth, (user) => {
+    currentUser = user;
+    const statusEl = document.getElementById('loginUserStatus');
+    const authBtn = document.getElementById('authBtn');
+    if (user) {
+      // メールアドレスの形式に変換して保存しているため、@前をニックネームとして表示
+      const nick = user.email.split('@')[0];
+      statusEl.textContent = `ログイン中: ${nick}`;
+      authBtn.textContent = "ログアウト";
+      authBtn.onclick = handleLogout;
+    } else {
+      statusEl.textContent = "未ログイン (ローカル保存は可能)";
+      authBtn.textContent = "ログイン / 登録";
+      authBtn.onclick = openAuthModal;
+    }
+  });
+
+  window.openAuthModal = function() {
+    document.getElementById('authModal').classList.add('active');
+  }
+  window.closeAuthModal = function() {
+    document.getElementById('authModal').classList.remove('active');
+  }
+
+  window.toggleAuthMode = function() {
+    isRegisterMode = !isRegisterMode;
+    document.getElementById('authModalTitle').textContent = isRegisterMode ? "新規アカウント登録" : "アカウントログイン";
+    document.getElementById('authSwitchText').textContent = isRegisterMode ? "すでにアカウントをお持ちの方はこちら" : "アカウントをお持ちでない方は新規登録";
+  }
+
+  window.handleAuthSubmit = async function() {
+    const username = document.getElementById('authUsername').value.trim();
+    const pass = document.getElementById('authPassword').value;
+    if (!username || !pass) {
+      alert("ニックネームとパスワードを入力してください。");
+      return;
+    }
+    // Firebase Authはメール形式が必要なため、固有のドメイン形式に変換
+    const dummyEmail = `${username}@recaptcha.app`;
+
+    try {
+      if (isRegisterMode) {
+        await createUserWithEmailAndPassword(auth, dummyEmail, pass);
+        alert("アカウントを作成し、ログインしました！");
+      } else {
+        await signInWithEmailAndPassword(auth, dummyEmail, pass);
+        alert("ログインしました！");
+      }
+      closeAuthModal();
+    } catch (e) {
+      alert("エラー: " + e.message);
+    }
+  }
+
+  async function handleLogout() {
+    await signOut(auth);
+    alert("ログアウトしました。");
+  }
+
+  // --- クラウド保存 (みんなの広場) ---
+  window.saveQuizCloud = async function() {
+    const title = document.getElementById('createTitle').value.trim();
+    if (!title) { alert('お題を入力してください。'); return; }
+    if (tileImages.some(img => img === null)) { alert('すべてのマスに画像を設定してください。'); return; }
+    if (!correctAnswers.some(ans => ans === true)) { alert('少なくとも1つ以上の正解マスを設定してください。'); return; }
+
+    try {
+      await addDoc(collection(db, "quizzes"), {
+        title: title,
+        gridSize: currentGridSize,
+        images: tileImages,
+        answers: correctAnswers,
+        author: currentUser ? currentUser.email.split('@')[0] : "名無しさん",
+        createdAt: Date.now()
+      });
+      alert('「みんなの広場」に公開しました！');
+      showScreen('screenHome');
+    } catch (e) {
+      alert("保存失敗: " + e.message);
+    }
+  }
+
+  // --- クラウド取得 ---
+  window.loadCloudQuizzes = async function() {
+    const listContainer = document.getElementById('quizList');
+    listContainer.innerHTML = '<p style="text-align:center; color:#888;">クラウドから読み込み中...</p>';
+    
+    try {
+      const querySnapshot = await getDocs(collection(db, "quizzes"));
+      listContainer.innerHTML = '';
+      if (querySnapshot.empty) {
+        listContainer.innerHTML = '<p style="text-align:center; color:#888;">みんなの広場にクイズがまだありません。</p>';
+        return;
+      }
+
+      querySnapshot.forEach((docSnap) => {
+        const quiz = docSnap.id;
+        const data = docSnap.data();
+        const item = document.createElement('div');
+        item.className = 'quiz-list-item';
+        item.innerHTML = `
+          <div>
+            <strong>${data.title}</strong> (${data.gridSize}マス)<br>
+            <span style="font-size:11px; color:#666;">作者: ${data.author || '名無し'}</span>
+          </div>
+          <div>
+            <button class="btn" style="width:auto; padding:6px 12px; margin:0;" onclick='playCloudQuiz(${JSON.stringify(data)})'>挑戦</button>
+          </div>
+        `;
+        listContainer.appendChild(item);
+      });
+    } catch (e) {
+      listContainer.innerHTML = '<p style="text-align:center; color:red;">読み込みエラーが発生しました。</p>';
+    }
+  }
+
+  window.playCloudQuiz = function(quizData) {
+    currentPlayingQuiz = quizData;
+    showScreen('screenPlay');
+    document.getElementById('playTitle').textContent = quizData.title;
+    const grid = document.getElementById('playGrid');
+    grid.className = `grid grid-${quizData.gridSize}`;
+    grid.innerHTML = '';
+
+    quizData.images.forEach((src) => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.onclick = () => tile.classList.toggle('selected');
+      const img = document.createElement('img');
+      img.src = src;
+      tile.appendChild(img);
+      grid.appendChild(tile);
+    });
+  }
+</script>
+
+<!-- アプリのベースロジック（UI制御・ローカル保存・トリミング） -->
+<script>
+  let currentGridSize = 9;
+  let tileImages = [];
+  let correctAnswers = [];
+  let selectedTileIndex = null;
+  let currentPlayingQuiz = null;
+
+  let rawImageObj = null;
+  let cropScale = 1;
+  let cropOffsetX = 0;
+  let cropOffsetY = 0;
+  let isDragging = false;
+  let startX, startY;
+  let cropCallback = null;
+
+  function showScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(screenId).classList.add('active');
+    if (screenId === 'screenCreate') {
+      initBlankGrid();
+    }
+  }
+
+  document.getElementById('createTitle').addEventListener('input', (e) => {
+    document.getElementById('previewTitleDisplay').textContent = e.target.value || 'お題がここに入ります';
+  });
+
+  function initBlankGrid() {
+    const sizeVal = document.querySelector('input[name="gridSize"]:checked').value;
+    currentGridSize = parseInt(sizeVal, 10);
+    tileImages = new Array(currentGridSize).fill(null);
+    correctAnswers = new Array(currentGridSize).fill(false);
+    renderCreateGrid();
+  }
+
+  function toggleUploadMode() {
+    const mode = document.querySelector('input[name="uploadType"]:checked').value;
+    document.getElementById('singleFileInputArea').style.display = (mode === 'single') ? 'block' : 'none';
+    renderCreateGrid();
+  }
+
+  function renderCreateGrid() {
+    const grid = document.getElementById('createGrid');
+    grid.className = `grid grid-${currentGridSize}`;
+    grid.innerHTML = '';
+
+    const mode = document.querySelector('input[name="uploadType"]:checked').value;
+
+    tileImages.forEach((src, idx) => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      
+      if (src) {
+        const img = document.createElement('img');
+        img.src = src;
+        tile.appendChild(img);
+        if (correctAnswers[idx]) tile.classList.add('correct-answer');
+      } else {
+        if (mode === 'individual') tile.classList.add('blank');
+      }
+
+      tile.onclick = () => {
+        if (mode === 'individual') {
+          if (!src) {
+            selectedTileIndex = idx;
+            document.getElementById('fileInputTile').click();
+          } else {
+            correctAnswers[idx] = !correctAnswers[idx];
+            renderCreateGrid();
+          }
+        } else {
+          if (src) {
+            correctAnswers[idx] = !correctAnswers[idx];
+            renderCreateGrid();
+          }
+        }
+      };
+      grid.appendChild(tile);
+    });
+  }
+
+  function openCropModal(img, callback) {
+    rawImageObj = img;
+    cropCallback = callback;
+    const minSide = Math.min(img.width, img.height);
+    cropScale = 260 / minSide;
+    document.getElementById('zoomRange').value = cropScale;
+    cropOffsetX = (260 - img.width * cropScale) / 2;
+    cropOffsetY = (260 - img.height * cropScale) / 2;
+    document.getElementById('cropModal').classList.add('active');
+    drawCropCanvas();
+  }
+
+  function closeCropModal() {
+    document.getElementById('cropModal').classList.remove('active');
+  }
+
+  function drawCropCanvas() {
+    if (!rawImageObj) return;
+    const canvas = document.getElementById('cropCanvas');
+    const ctx = canvas.getContext('2d');
+    cropScale = parseFloat(document.getElementById('zoomRange').value);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(rawImageObj, cropOffsetX, cropOffsetY, rawImageObj.width * cropScale, rawImageObj.height * cropScale);
+  }
+
+  const container = document.getElementById('canvasContainer');
+  container.addEventListener('pointerdown', (e) => {
+    isDragging = true;
+    startX = e.clientX - cropOffsetX;
+    startY = e.clientY - cropOffsetY;
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    cropOffsetX = e.clientX - startX;
+    cropOffsetY = e.clientY - startY;
+    drawCropCanvas();
+  });
+  window.addEventListener('pointerup', () => isDragging = false);
+
+  function applyCrop() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 300;
+    canvas.height = 300;
+    const ctx = canvas.getContext('2d');
+    const factor = 300 / 260;
+    ctx.drawImage(rawImageObj, cropOffsetX * factor, cropOffsetY * factor, rawImageObj.width * cropScale * factor, rawImageObj.height * cropScale * factor);
+    const croppedDataUrl = canvas.toDataURL('image/png');
+    closeCropModal();
+    if (cropCallback) cropCallback(croppedDataUrl);
+  }
+
+  function handleTileImageSelect(e) {
+    const file = e.target.files[0];
+    if (!file || selectedTileIndex === null) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        openCropModal(img, (croppedSrc) => {
+          tileImages[selectedTileIndex] = croppedSrc;
+          correctAnswers[selectedTileIndex] = true;
+          renderCreateGrid();
+        });
+        e.target.value = '';
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleSingleImageSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        openCropModal(img, (croppedSquareSrc) => {
+          const squareImg = new Image();
+          squareImg.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const cols = Math.sqrt(currentGridSize);
+            const sliceSize = squareImg.width / cols;
+            canvas.width = sliceSize;
+            canvas.height = sliceSize;
+
+            tileImages = [];
+            correctAnswers = new Array(currentGridSize).fill(true);
+            for (let row = 0; row < cols; row++) {
+              for (let col = 0; col < cols; col++) {
+                ctx.clearRect(0, 0, sliceSize, sliceSize);
+                ctx.drawImage(squareImg, col * sliceSize, row * sliceSize, sliceSize, sliceSize, 0, 0, sliceSize, sliceSize);
+                tileImages.push(canvas.toDataURL('image/png'));
+              }
+            }
+            renderCreateGrid();
+          };
+          squareImg.src = croppedSquareSrc;
+        });
+        e.target.value = '';
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // 端末内への保存
+  function saveQuizLocal() {
+    const title = document.getElementById('createTitle').value.trim();
+    if (!title) { alert('お題を入力してください。'); return; }
+    if (tileImages.some(img => img === null)) { alert('すべてのマスに画像を設定してください。'); return; }
+    if (!correctAnswers.some(ans => ans === true)) { alert('少なくとも1つ以上の正解マスを設定してください。'); return; }
+
+    const quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
+    quizzes.push({ id: Date.now(), title, gridSize: currentGridSize, images: tileImages, answers: correctAnswers });
+    localStorage.setItem('my_recaptcha_quizzes', JSON.stringify(quizzes));
+    alert('端末のアルバムに保存しました！');
+    showScreen('screenHome');
+  }
+
+  // アルバムを開く切り替え
+  function openAlbum(mode) {
+    showScreen('screenAlbum');
+    if (mode === 'local') {
+      document.getElementById('albumTitle').textContent = "ｍｙアルバム (端末内)";
+      loadLocalQuizzes();
+    } else {
+      document.getElementById('albumTitle').textContent = "みんなの広場 (クラウド)";
+      loadCloudQuizzes();
+    }
+  }
+
+  function loadLocalQuizzes() {
+    const listContainer = document.getElementById('quizList');
+    const quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
+    listContainer.innerHTML = '';
+    if (quizzes.length === 0) {
+      listContainer.innerHTML = '<p style="text-align:center; color:#888;">保存されたクイズがありません。</p>';
+      return;
+    }
+    quizzes.forEach((quiz) => {
+      const item = document.createElement('div');
+      item.className = 'quiz-list-item';
+      item.innerHTML = `
+        <div><strong>${quiz.title}</strong> (${quiz.gridSize}マス)</div>
+        <div>
+          <button class="btn" style="width:auto; padding:6px 12px; margin:0 4px 0 0;" onclick='playLocalQuiz(${JSON.stringify(quiz)})'>挑戦</button>
+          <button class="btn btn-danger" onclick="deleteLocalQuiz(${quiz.id})">削除</button>
+        </div>
+      `;
+      listContainer.appendChild(item);
+    });
+  }
+
+  function deleteLocalQuiz(id) {
+    let quizzes = JSON.parse(localStorage.getItem('my_recaptcha_quizzes') || '[]');
+    quizzes = quizzes.filter(q => q.id !== id);
+    localStorage.setItem('my_recaptcha_quizzes', JSON.stringify(quizzes));
+    loadLocalQuizzes();
+  }
+
+  function playLocalQuiz(quizData) {
+    currentPlayingQuiz = quizData;
+    showScreen('screenPlay');
+    document.getElementById('playTitle').textContent = quizData.title;
+    const grid = document.getElementById('playGrid');
+    grid.className = `grid grid-${quizData.gridSize}`;
+    grid.innerHTML = '';
+
+    quizData.images.forEach((src) => {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.onclick = () => tile.classList.toggle('selected');
+      const img = document.createElement('img');
+      img.src = src;
+      tile.appendChild(img);
+      grid.appendChild(tile);
+    });
+  }
+
+  function verifyPlay() {
+    if (!currentPlayingQuiz) return;
+    const tiles = document.querySelectorAll('#playGrid .tile');
+    let isCorrect = true;
+    tiles.forEach((tile, index) => {
+      const isSelected = tile.classList.contains('selected');
+      const shouldBeSelected = currentPlayingQuiz.answers[index];
+      if (isSelected !== shouldBeSelected) isCorrect = false;
+    });
+
+    if (isCorrect) {
+      alert("【判定成功】あなたは人間です！認証に成功しました。");
+    } else {
+      alert("【判定失敗】人間と認められませんでした。選択をやり直してください。");
+    }
+  }
+</script>
+</body>
+</html>
