@@ -463,7 +463,6 @@
 
     try {
       for (let quiz of targetQuizzesForPublish) {
-        // Firestoreに保存し、生成されたドキュメントIDをローカル側にも紐付けておくことで後から非公開（削除）できるようにする
         const docRef = await addDoc(collection(db, "quizzes"), {
           title: quiz.title,
           gridSize: quiz.gridSize,
@@ -475,11 +474,9 @@
           createdAt: Date.now()
         });
 
-        // 端末のローカルデータにもクラウドID(cloudId)を記録しておく
         quiz.cloudId = docRef.id;
       }
 
-      // ローカルストレージを更新してクラウドIDを保存
       const userKey = `quizzes_${currentUser.uid}`;
       localStorage.setItem(userKey, JSON.stringify(JSON.parse(localStorage.getItem(userKey) || '[]').map(q => {
         const matched = targetQuizzesForPublish.find(t => t.id === q.id);
@@ -500,7 +497,6 @@
     try {
       await deleteDoc(doc(db, "quizzes", cloudId));
       
-      // ローカル側のcloudIdもクリアする
       const userKey = `quizzes_${currentUser.uid}`;
       let quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
       quizzes = quizzes.map(q => q.id === localId ? { ...q, cloudId: null } : q);
@@ -513,7 +509,7 @@
     }
   }
 
-  // --- クラウド取得 (みんなの広場 ＆ 友達からのクイズ) ---
+  // --- 全アカウント共通のクラウド読み込み（みんなの広場 ＆ 友達からのクイズ） ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
@@ -529,11 +525,13 @@
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
-          if (!data.targetUser || data.targetUser === "") {
+          // 全体公開（targetUserがないか空のもの）→ 誰でも共通で閲覧可能
+          if (!data.targetUser || data.targetUser.trim() === "") {
             quizzes.push(data);
           }
         } else if (mode === 'direct') {
-          if (myName && data.targetUser === myName) {
+          // ログイン中かつ自分宛てのもの
+          if (myName && data.targetUser.trim() === myName) {
             quizzes.push(data);
           }
         }
@@ -564,7 +562,7 @@
     }
   }
 
-  // --- ログインユーザーの自分の作品アルバム（非公開ボタン対応） ---
+  // --- ログインユーザーの自分の作品アルバム ---
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'block';
@@ -879,7 +877,7 @@
   }
 
   function verifyPlay() {
-    const quizData = activePlaylist[currentPlaylistStatus = currentPlaylistIndex];
+    const quizData = activePlaylist[currentPlaylistIndex];
     const tiles = document.querySelectorAll('#playGrid .tile');
     let isCorrect = true;
     tiles.forEach((tile, index) => {
