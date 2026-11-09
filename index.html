@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>理不尽 reCAPTCHA クラウド広場</title>
+  <title>理不尽 reCAPTCHA メイカー</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -34,13 +34,13 @@
     /* ボタン共通 */
     .btn {
       width: 100%;
-      padding: 12px;
-      margin: 8px 0;
+      padding: 14px;
+      margin: 10px 0;
       background-color: #4285f4;
       color: white;
       border: none;
-      border-radius: 4px;
-      font-size: 15px;
+      border-radius: 6px;
+      font-size: 16px;
       font-weight: bold;
       cursor: pointer;
       text-align: center;
@@ -51,18 +51,19 @@
     .btn-success { background-color: #28a745; }
     .btn-success:hover { background-color: #218838; }
     .btn-danger { background-color: #dc3545; padding: 6px 10px; font-size: 12px; width: auto; }
-    .btn-disabled { background-color: #cccccc !important; cursor: not-allowed; }
+    .btn-warning { background-color: #e0a800; color: #fff; }
+    .btn-warning:hover { background-color: #c69500; }
 
-    /* ログイン状態バー */
-    .user-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    /* ログイン状態のユーザー名表示 */
+    .user-welcome {
+      text-align: center;
       background: #e9ecef;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 12px;
-      margin-bottom: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
     }
 
     /* reCAPTCHA カード構造 */
@@ -200,29 +201,42 @@
 
 <div class="app-container">
 
-  <!-- ログイン状態表示バー -->
-  <div class="user-bar">
-    <span id="loginUserStatus">状態確認中...</span>
-    <button id="authBtn" class="btn btn-secondary" style="width:auto; padding:3px 8px; margin:0; font-size:11px;" onclick="openAuthModal()">ログイン / 登録</button>
-  </div>
-
-  <!-- 1. ホーム画面 -->
-  <div id="screenHome" class="screen active">
-    <h1>reCAPTCHA Maker</h1>
-    <div style="margin-top: 20px;">
-      <!-- 未ログイン時はログインモーダルへ導くガード付き機能 -->
-      <button class="btn" onclick="requireLogin(() => showScreen('screenCreate'))">新規クイズ作成 🔒</button>
-      <button class="btn btn-secondary" onclick="requireLogin(() => openAlbum('local'))">ｍｙアルバム (自分の作品) 🔒</button>
-      
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;">
-      
-      <!-- 誰でもプレイ可能なパブリック機能 -->
-      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (公開クイズ)</button>
-      <button class="btn btn-secondary" style="background-color: #e0a800; color: #fff;" onclick="openAlbum('direct')">友達からのクイズ</button>
+  <!-- 1. ログイン前トップ画面 (シーンA) -->
+  <div id="screenLanding" class="screen active">
+    <h1 style="margin-top: 40px;">reCAPTCHA Maker</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 40px; font-size: 14px;">理不尽な画像認証クイズを作って遊ぼう！</p>
+    
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <button class="btn" onclick="openAuthModal('login')">ログイン</button>
+      <button class="btn btn-secondary" onclick="openAuthModal('register')">新規登録</button>
+      <button class="btn btn-success" onclick="showScreen('screenPublicHub')">公開クイズをプレイ</button>
     </div>
   </div>
 
-  <!-- 2. クイズ作成画面（要ログイン） -->
+  <!-- 2. ログイン後メイン画面 (シーンB) -->
+  <div id="screenDashboard" class="screen">
+    <h1>マイダッシュボード</h1>
+    <div class="user-welcome" id="welcomeUserText">ようこそ、ゲストさん</div>
+
+    <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <button class="btn" onclick="showScreen('screenCreate')">新規クイズ作成</button>
+      <button class="btn btn-secondary" onclick="openAlbum('local')">ｍｙアルバム (自分の作品)</button>
+      <button class="btn btn-success" onclick="showScreen('screenPublicHub')">公開クイズをプレイ</button>
+      <button class="btn btn-danger" style="width:100%; margin-top:20px;" onclick="handleLogout()">ログアウト</button>
+    </div>
+  </div>
+
+  <!-- 3. 公開クイズ選択ハブ画面 (みんなの広場 ＆ 友達から) -->
+  <div id="screenPublicHub" class="screen">
+    <h2>公開クイズをプレイ</h2>
+    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
+      <button class="btn btn-success" onclick="openAlbum('cloud')">みんなの広場 (全体公開)</button>
+      <button class="btn btn-warning" onclick="openAlbum('direct')">友達からのクイズ</button>
+      <button class="btn btn-secondary" onclick="goBackHome()" style="margin-top: 20px;">戻る</button>
+    </div>
+  </div>
+
+  <!-- 4. クイズ作成画面 -->
   <div id="screenCreate" class="screen">
     <h2>クイズ作成</h2>
     
@@ -248,7 +262,6 @@
 
     <p style="font-size: 11px; color: #666; margin: 2px 0 6px 0;">※マスをタップして正解/不正解を切り替え</p>
 
-    <!-- プレビュー枠 -->
     <div class="recaptcha-card">
       <div class="recaptcha-header">
         <p>以下の画像をすべて選択してください：</p>
@@ -258,20 +271,20 @@
     </div>
 
     <button class="btn btn-secondary" style="margin-top: 12px;" onclick="saveQuizLocal()">自分のアルバムに保存</button>
-    <button class="btn btn-secondary" onclick="showScreen('screenHome')">ホームへ戻る</button>
+    <button class="btn btn-secondary" onclick="showScreen('screenDashboard')">ダッシュボードへ戻る</button>
   </div>
 
-  <!-- 3. アルバム / 一覧画面 -->
+  <!-- 5. アルバム / 一覧画面 -->
   <div id="screenAlbum" class="screen">
     <h2 id="albumTitle">アルバム</h2>
     <div id="batchActionArea" style="margin-bottom: 10px; display:none;">
       <button class="btn btn-success" onclick="openBatchPublishModal()">選択したクイズをまとめて公開・送信</button>
     </div>
     <div id="quizList"></div>
-    <button class="btn btn-secondary" onclick="showScreen('screenHome')" style="margin-top: 16px;">ホームへ戻る</button>
+    <button class="btn btn-secondary" onclick="goBackHome()" style="margin-top: 16px;">ホームへ戻る</button>
   </div>
 
-  <!-- 4. クイズ挑戦画面 -->
+  <!-- 6. クイズ挑戦画面 -->
   <div id="screenPlay" class="screen">
     <div id="progressIndicator" style="font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; text-align: right;"></div>
     <div class="recaptcha-card">
@@ -285,7 +298,7 @@
         <button class="btn" style="width: auto; padding: 6px 16px; margin:0;" onclick="verifyPlay()">確認</button>
       </div>
     </div>
-    <button class="btn btn-secondary" onclick="showScreen('screenHome')" style="margin-top: 16px;">ホームへ戻る</button>
+    <button class="btn btn-secondary" onclick="goBackHome()" style="margin-top: 16px;">ホームへ戻る</button>
   </div>
 
 </div>
@@ -318,7 +331,6 @@
     <input type="text" id="authUsername" placeholder="ニックネーム (ID)" style="width:100%; padding:8px; margin:6px 0;">
     <input type="password" id="authPassword" placeholder="パスワード (6文字以上)" style="width:100%; padding:8px; margin:6px 0;">
     <button class="btn" onclick="handleAuthSubmit()" style="margin-top:10px;">実行</button>
-    <p id="authSwitchText" style="font-size:12px; color:#4285f4; cursor:pointer; text-align:center; margin-top:8px;" onclick="toggleAuthMode()">アカウントをお持ちでない方は新規登録</p>
     <button class="btn btn-secondary" onclick="closeAuthModal()" style="margin-top:4px;">閉じる</button>
   </div>
 </div>
@@ -358,46 +370,33 @@
   const auth = getAuth(app);
   const db = getFirestore(app);
 
-  // ログイン永続化の設定（コード更新やブラウザ再起動でもログインを保持）
   setPersistence(auth, browserLocalPersistence);
 
   let currentUser = null;
   let isRegisterMode = false;
   let targetQuizzesForPublish = [];
 
-  // ログイン監視（状態復元）
+  // ログイン状態が変わったときのシーン切り替え制御
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
-    const statusEl = document.getElementById('loginUserStatus');
-    const authBtn = document.getElementById('authBtn');
+    const welcomeUserText = document.getElementById('welcomeUserText');
+
     if (user) {
       const nick = user.email.split('@')[0];
-      statusEl.textContent = `ログイン中: ${nick}`;
-      authBtn.textContent = "ログアウト";
-      authBtn.onclick = handleLogout;
-    } else {
-      statusEl.textContent = "未ログイン (閲覧専用)";
-      authBtn.textContent = "ログイン / 登録";
-      authBtn.onclick = openAuthModal;
+      welcomeUserText.textContent = `👤 ログイン中: ${nick}`;
     }
   });
 
-  // 未ログイン時のアクセス制御用ガード関数
-  window.requireLogin = function(actionCallback) {
-    if (!currentUser) {
-      alert("クイズの作成や編集済み作品の確認にはアカウントログインが必要です。");
-      openAuthModal();
-    } else {
-      actionCallback();
-    }
+  window.openAuthModal = function(mode) {
+    isRegisterMode = (mode === 'register');
+    document.getElementById('authModalTitle').textContent = isRegisterMode ? "新規アカウント登録" : "アカウントログイン";
+    document.getElementById('authUsername').value = "";
+    document.getElementById('authPassword').value = "";
+    document.getElementById('authModal').classList.add('active');
   }
 
-  window.openAuthModal = function() { document.getElementById('authModal').classList.add('active'); }
-  window.closeAuthModal = function() { document.getElementById('authModal').classList.remove('active'); }
-  window.toggleAuthMode = function() {
-    isRegisterMode = !isRegisterMode;
-    document.getElementById('authModalTitle').textContent = isRegisterMode ? "新規アカウント登録" : "アカウントログイン";
-    document.getElementById('authSwitchText').textContent = isRegisterMode ? "すでにアカウントをお持ちの方はこちら" : "アカウントをお持ちでない方は新規登録";
+  window.closeAuthModal = function() {
+    document.getElementById('authModal').classList.remove('active');
   }
 
   window.handleAuthSubmit = async function() {
@@ -408,31 +407,42 @@
     try {
       if (isRegisterMode) {
         await createUserWithEmailAndPassword(auth, dummyEmail, pass);
-        alert("アカウントを作成し、自動ログインしました！");
+        alert("アカウントを作成し、ログインしました！");
       } else {
         await signInWithEmailAndPassword(auth, dummyEmail, pass);
         alert("ログインしました！");
       }
       closeAuthModal();
+      // ログイン成功したらシーンを丸ごと「ダッシュボード（ログイン後画面）」に切り替える
+      showScreen('screenDashboard');
     } catch (e) { alert("認証エラー: " + e.message); }
   }
 
-  async function handleLogout() {
+  window.handleLogout = async function() {
     await signOut(auth);
-    alert("ログアウトしました。未ログインモードに戻ります。");
-    showScreen('screenHome');
+    alert("ログアウトしました。");
+    // ログアウトしたら「ログイン前のトップ画面」に戻る
+    showScreen('screenLanding');
+  }
+
+  window.goBackHome = function() {
+    if (currentUser) {
+      showScreen('screenDashboard');
+    } else {
+      showScreen('screenLanding');
+    }
   }
 
   // --- 公開・送信制御 ---
   window.openPublishModalForQuiz = function(quiz) {
-    if (!currentUser) { openAuthModal(); return; }
+    if (!currentUser) { openAuthModal('login'); return; }
     targetQuizzesForPublish = [quiz];
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('publishModal').classList.add('active');
   }
 
   window.openBatchPublishModal = function() {
-    if (!currentUser) { openAuthModal(); return; }
+    if (!currentUser) { openAuthModal('login'); return; }
     const checkboxes = document.querySelectorAll('.quiz-select-checkbox:checked');
     if (checkboxes.length === 0) { alert("公開するクイズを選択してください。"); return; }
     if (checkboxes.length < 2 || checkboxes.length > 15) {
@@ -477,11 +487,11 @@
       }
       alert(`${targetQuizzesForPublish.length}件のクイズを公開・送信しました！`);
       closePublishModal();
-      showScreen('screenHome');
+      showScreen('screenDashboard');
     } catch (e) { alert("送信エラー: " + e.message); }
   }
 
-  // --- クラウド取得 (パブリック ＆ ダイレクト) ---
+  // --- クラウド取得 ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
@@ -532,13 +542,13 @@
     }
   }
 
-  // --- ログインユーザーごとのローカル作品読み込み ---
+  // --- ログインユーザーのアルバム読み込み ---
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'block';
 
     if (!currentUser) {
-      listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインすると作成したクイズを管理できます。</p>';
+      listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインしてください。</p>';
       return;
     }
 
@@ -548,7 +558,7 @@
     
     if (quizzes.length === 0) {
       document.getElementById('batchActionArea').style.display = 'none';
-      listContainer.innerHTML = '<p style="text-align:center; color:#888;">まだ作成したクイズがありません。「新規クイズ作成」から保存してください。</p>';
+      listContainer.innerHTML = '<p style="text-align:center; color:#888;">まだ作成したクイズがありません。</p>';
       return;
     }
 
@@ -577,7 +587,7 @@
     quizzes.push({ id: Date.now(), title, gridSize, images, answers });
     localStorage.setItem(userKey, JSON.stringify(quizzes));
     alert('自分のアルバムに保存しました！');
-    showScreen('screenHome');
+    showScreen('screenDashboard');
   }
 
   window.deleteLocalQuiz = function(id) {
@@ -846,7 +856,7 @@
         renderCurrentPlayQuiz();
       } else {
         alert("【全問クリア成功】すべての認証を突破しました！あなたは人間です。");
-        showScreen('screenHome');
+        goBackHome();
       }
     } else {
       alert("【判定失敗】選択が違います。もう一度選び直してください。");
