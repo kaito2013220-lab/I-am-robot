@@ -164,6 +164,25 @@
       background: #fafafa;
     }
 
+    .badge-unread {
+      background: #dc3545;
+      color: white;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-weight: bold;
+      margin-left: 4px;
+    }
+    .badge-cleared {
+      background: #28a745;
+      color: white;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-weight: bold;
+      margin-left: 4px;
+    }
+
     /* モーダル */
     .modal {
       display: none;
@@ -305,6 +324,11 @@
   <div class="modal-content">
     <h3>公開・送信設定</h3>
     
+    <div id="setNameInputArea" style="width:100%; display:none; margin-bottom:8px;">
+      <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left;">連続クイズのセット名 (ファイル名):</label>
+      <input type="text" id="pubSetName" placeholder="例: 激難問題集パック1" style="width:100%; padding:8px; margin-top:4px;">
+    </div>
+
     <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left; margin-top:6px;">公開タイプ:</label>
     <select id="pubTypeSelect" style="width:100%; padding:8px; margin:4px 0 10px 0;" onchange="togglePubTargetInput()">
       <option value="public">🌐 みんなの広場 (全体公開)</option>
@@ -382,8 +406,8 @@
   let isRegisterMode = false;
   let targetQuizzesForPublish = [];
   let fetchedCloudQuizzesCache = [];
+  let currentMode = 'cloud';
 
-  // グローバルに関数を登録してボタンから確実に呼び出せるようにする
   window.openAuthModal = function(mode) {
     isRegisterMode = (mode === 'register');
     const titleEl = document.getElementById('authModalTitle');
@@ -426,15 +450,12 @@
     try {
       await signOut(auth);
       alert("ログアウトしました。");
-    } catch (e) {
-      alert("ログアウトエラー: " + e.message);
-    }
+    } catch (e) { alert("ログアウトエラー: " + e.message); }
   };
 
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
     const welcomeUserText = document.getElementById('welcomeUserText');
-
     if (user) {
       const nick = user.email.split('@')[0];
       if (welcomeUserText) welcomeUserText.textContent = `👤 ログイン中: ${nick}`;
@@ -476,6 +497,7 @@
       return;
     }
     targetQuizzesForPublish = [quiz];
+    document.getElementById('setNameInputArea').style.display = 'none';
     document.getElementById('pubTypeSelect').value = "public";
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('targetUserInputArea').style.display = 'none';
@@ -505,6 +527,8 @@
       return;
     }
 
+    document.getElementById('setNameInputArea').style.display = 'block';
+    document.getElementById('pubSetName').value = "";
     document.getElementById('pubTypeSelect').value = "public";
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('targetUserInputArea').style.display = 'none';
@@ -523,8 +547,19 @@
       return;
     }
 
+    const isBatch = targetQuizzesForPublish.length > 1;
+    let setName = "";
+    if (isBatch) {
+      setName = document.getElementById('pubSetName').value.trim();
+      if (!setName) {
+        alert("連続クイズのセット名（ファイル名）を入力してください。");
+        return;
+      }
+    }
+
     const difficulty = parseInt(document.getElementById('pubDifficulty').value, 10);
     const authorName = currentUser.email.split('@')[0];
+    const setId = isBatch ? `set_${Date.now()}` : "";
 
     try {
       const snapshot = await getDocs(collection(db, "quizzes"));
@@ -534,7 +569,8 @@
         if (d.code) existingCodes.add(d.code);
       });
 
-      for (let quiz of targetQuizzesForPublish) {
+      for (let idx = 0; idx < targetQuizzesForPublish.length; idx++) {
+        let quiz = targetQuizzesForPublish[idx];
         let uniqueCode = generate12Code();
         while (existingCodes.has(uniqueCode)) {
           uniqueCode = generate12Code();
@@ -550,6 +586,10 @@
           difficulty: difficulty,
           targetUser: targetUser,
           code: uniqueCode,
+          setId: setId,
+          setName: setName,
+          setIndex: idx + 1,
+          setTotal: targetQuizzesForPublish.length,
           createdAt: Date.now()
         });
 
@@ -583,12 +623,11 @@
 
       alert("クイズを非公開にしました。");
       window.loadUserLocalQuizzes();
-    } catch (e) {
-      alert("非公開エラー: " + e.message);
-    }
+    } catch (e) { alert("非公開エラー: " + e.message); }
   };
 
   window.loadCloudQuizzes = async function(mode) {
+    currentMode = mode;
     const listContainer = document.getElementById('quizList');
     const batchArea = document.getElementById('batchActionArea');
     const searchArea = document.getElementById('searchBarArea');
@@ -606,6 +645,7 @@
 
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
+        data.docId = docSnap.id;
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
@@ -632,9 +672,26 @@
     const filtered = fetchedCloudQuizzesCache.filter(q => {
       const titleMatch = q.title && q.title.toLowerCase().includes(keyword);
       const codeMatch = q.code && q.code.toLowerCase().includes(keyword);
-      return titleMatch || codeMatch;
+      const setMatch = q.setName && q.setName.toLowerCase().includes(keyword);
+      return titleMatch || codeMatch || setMatch;
     });
     renderQuizListUI(filtered);
+  };
+
+  function getClearedQuizzes() {
+    if (!currentUser) return [];
+    const clearedKey = `cleared_${currentUser.uid}`;
+    return JSON.parse(localStorage.getItem(clearedKey) || '[]');
+  }
+
+  window.markQuizAsCleared = function(quizCode) {
+    if (!currentUser || !quizCode) return;
+    const clearedKey = `cleared_${currentUser.uid}`;
+    const cleared = getClearedQuizzes();
+    if (!cleared.includes(quizCode)) {
+      cleared.push(quizCode);
+      localStorage.setItem(clearedKey, JSON.stringify(cleared));
+    }
   };
 
   function renderQuizListUI(quizzes) {
@@ -647,14 +704,64 @@
       return;
     }
 
-    quizzes.forEach((quizData) => {
+    const clearedCodes = getClearedQuizzes();
+
+    // グループ化処理 (セット単位でまとめる)
+    const setGroups = {};
+    const singleQuizzes = [];
+
+    quizzes.forEach(q => {
+      if (q.setId && q.setName) {
+        if (!setGroups[q.setId]) setGroups[q.setId] = [];
+        setGroups[q.setId].push(q);
+      } else {
+        singleQuizzes.push(q);
+      }
+    });
+
+    // 1. セットクイズの描画
+    Object.keys(setGroups).forEach(setId => {
+      const groupQuizzes = setGroups[setId].sort((a,b) => (a.setIndex || 0) - (b.setIndex || 0));
+      const firstQuiz = groupQuizzes[0];
+      const diffStars = "⭐".repeat(firstQuiz.difficulty || 3);
+
+      const allCleared = groupQuizzes.every(q => clearedCodes.includes(q.code));
+      let statusBadge = "";
+      if (currentMode === 'direct') {
+        statusBadge = allCleared ? `<span class="badge-cleared">✓ 全問クリア済</span>` : `<span class="badge-unread">🔴 未挑戦あり</span>`;
+      }
+
+      const item = document.createElement('div');
+      item.className = 'quiz-list-item';
+      item.style.borderLeft = "4px solid #28a745";
+      item.innerHTML = `
+        <div>
+          <strong>📦 [セット] ${firstQuiz.setName}</strong> (${groupQuizzes.length}問構成)${statusBadge}<br>
+          <span style="font-size:11px; color:#666;">作者: ${firstQuiz.author || '名無し'} | 難易度: ${diffStars}</span>
+        </div>
+        <div>
+          <button class="btn btn-success" style="width:auto; padding:6px 12px; margin:0; font-size:12px;" onclick='startContinuousPlay(${JSON.stringify(groupQuizzes)}, 0)'>連続挑戦</button>
+        </div>
+      `;
+      listContainer.appendChild(item);
+    });
+
+    // 2. 単体クイズの描画
+    singleQuizzes.forEach((quizData) => {
       const diffStars = "⭐".repeat(quizData.difficulty || 3);
       const codeText = quizData.code ? `コード: <code>${quizData.code}</code>` : "";
+
+      const isCleared = clearedCodes.includes(quizData.code);
+      let statusBadge = "";
+      if (currentMode === 'direct') {
+        statusBadge = isCleared ? `<span class="badge-cleared">✓ クリア済</span>` : `<span class="badge-unread">🔴 未挑戦</span>`;
+      }
+
       const item = document.createElement('div');
       item.className = 'quiz-list-item';
       item.innerHTML = `
         <div>
-          <strong>${quizData.title}</strong> (${quizData.gridSize}マス)<br>
+          <strong>${quizData.title}</strong> (${quizData.gridSize}マス)${statusBadge}<br>
           <span style="font-size:11px; color:#666;">作者: ${quizData.author || '名無し'} | 難易度: ${diffStars}</span><br>
           <span style="font-size:10px; color:#007bff; font-family:monospace;">${codeText}</span>
         </div>
@@ -989,7 +1096,13 @@
     const quizData = activePlaylist[currentPlaylistIndex];
     const progressEl = document.getElementById('progressIndicator');
     const playTitleEl = document.getElementById('playTitle');
-    if (progressEl) progressEl.textContent = `問題 ${currentPlaylistIndex + 1} / ${activePlaylist.length}`;
+    
+    let setInfoText = "";
+    if (quizData.setName) {
+      setInfoText = ` [${quizData.setName}]`;
+    }
+    
+    if (progressEl) progressEl.textContent = `問題 ${currentPlaylistIndex + 1} / ${activePlaylist.length}${setInfoText}`;
     if (playTitleEl) playTitleEl.textContent = quizData.title;
     
     const grid = document.getElementById('playGrid');
@@ -1019,8 +1132,13 @@
     });
 
     if (isCorrect) {
+      // 正解したクイズをクリア済みにマーク
+      if (quizData.code) {
+        window.markQuizAsCleared(quizData.code);
+      }
+
       if (currentPlaylistIndex + 1 < activePlaylist.length) {
-        alert("正解！次の問題に進みます。");
+        alert("正解！次の認証へ進みます。");
         currentPlaylistIndex++;
         renderCurrentPlayQuiz();
       } else {
