@@ -265,7 +265,7 @@
     <button class="btn btn-secondary" onclick="showScreen('screenDashboard')">ダッシュボードへ戻る</button>
   </div>
 
-  <!-- 4. アルバム / 一覧画面 (検索バー付き) -->
+  <!-- 4. アルバム / 一覧画面 -->
   <div id="screenAlbum" class="screen">
     <h2 id="albumTitle">アルバム</h2>
     
@@ -300,7 +300,7 @@
 
 </div>
 
-<!-- 公開・送信設定モーダル (全体公開/特定アカウント選択バー対応) -->
+<!-- 公開・送信設定モーダル -->
 <div id="publishModal" class="modal">
   <div class="modal-content">
     <h3>公開・送信設定</h3>
@@ -316,7 +316,7 @@
       <input type="text" id="pubTargetUser" placeholder="相手のニックネームを入力" style="width:100%; padding:8px; margin-top:4px;">
     </div>
 
-    <label style="font-size: 13px; font-weight: bold; width:100% ; text-align:left;">難易度 (1〜5):</label>
+    <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left;">難易度 (1〜5):</label>
     <select id="pubDifficulty" style="width:100%; padding:8px; margin:4px 0 10px 0;">
       <option value="1">⭐ 1 (かんたん)</option>
       <option value="2">⭐⭐ 2</option>
@@ -381,7 +381,7 @@
   let currentUser = null;
   let isRegisterMode = false;
   let targetQuizzesForPublish = [];
-  let fetchedCloudQuizzesCache = []; // 検索・フィルタリング用キャッシュ
+  let fetchedCloudQuizzesCache = [];
 
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
@@ -438,7 +438,6 @@
     }
   }
 
-  // --- 12桁のランダムなアルファベットコード生成 ---
   function generate12Code() {
     const chars = "abcdefghijklmnopqrstuvwxyz";
     let result = "";
@@ -448,9 +447,10 @@
     return result;
   }
 
-  // --- 公開・送信コントロール ---
   window.togglePubTargetInput = function() {
-    const type = document.getElementById('pubTypeSelect').value;
+    const pubTypeEl = document.getElementById('pubTypeSelect');
+    if (!pubTypeEl) return;
+    const type = pubTypeEl.value;
     document.getElementById('targetUserInputArea').style.display = (type === 'direct') ? 'block' : 'none';
   }
 
@@ -497,7 +497,7 @@
   }
 
   window.closePublishModal = function() {
-    document.getElementById('publishModal'].classList.remove('active');
+    document.getElementById('publishModal').classList.remove('active');
   }
 
   window.executePublish = async function() {
@@ -512,7 +512,6 @@
     const authorName = currentUser.email.split('@')[0];
 
     try {
-      // データベース上の既存コード重複チェック用に全データを一度取得
       const snapshot = await getDocs(collection(db, "quizzes"));
       const existingCodes = new Set();
       snapshot.forEach(docSnap => {
@@ -521,7 +520,6 @@
       });
 
       for (let quiz of targetQuizzesForPublish) {
-        // 被らない12桁コードを生成
         let uniqueCode = generate12Code();
         while (existingCodes.has(uniqueCode)) {
           uniqueCode = generate12Code();
@@ -536,7 +534,7 @@
           author: authorName,
           difficulty: difficulty,
           targetUser: targetUser,
-          code: uniqueCode, // 12桁アルファベットコード
+          code: uniqueCode,
           createdAt: Date.now()
         });
 
@@ -556,7 +554,6 @@
     } catch (e) { alert("送信エラー: " + e.message); }
   }
 
-  // --- 非公開にする ---
   window.unpublishQuiz = async function(cloudId, localId) {
     if (!cloudId) { alert("このクイズはまだクラウドに公開されていません。"); return; }
     if (!confirm("このクイズをみんなの広場から非公開（削除）にしますか？")) return;
@@ -576,11 +573,10 @@
     }
   }
 
-  // --- クラウド取得 & 検索バー機能 ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
-    document.getElementById('searchBarArea').style.display = 'block'; // 検索バーを表示
+    document.getElementById('searchBarArea').style.display = 'block';
     document.getElementById('quizSearchInput').value = '';
     
     listContainer.innerHTML = '<p style="text-align:center; color:#888;">クラウドから読み込み中...</p>';
@@ -611,7 +607,9 @@
   }
 
   window.filterQuizList = function() {
-    const keyword = document.getElementById('quizSearchInput').value.trim().toLowerCase();
+    const inputEl = document.getElementById('quizSearchInput');
+    if (!inputEl) return;
+    const keyword = inputEl.value.trim().toLowerCase();
     const filtered = fetchedCloudQuizzesCache.filter(q => {
       const titleMatch = q.title && q.title.toLowerCase().includes(keyword);
       const codeMatch = q.code && q.code.toLowerCase().includes(keyword);
@@ -648,11 +646,10 @@
     });
   }
 
-  // --- 自分の作品アルバム ---
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'block';
-    document.getElementById('searchBarArea').style.display = 'none'; // アルバムでは検索非表示
+    document.getElementById('searchBarArea').style.display = 'none';
 
     if (!currentUser) {
       listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインしてください。</p>';
