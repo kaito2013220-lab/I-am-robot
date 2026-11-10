@@ -207,8 +207,8 @@
     <p style="text-align: center; color: #666; margin-bottom: 40px; font-size: 14px;">理不尽な画像認証クイズを作って遊ぼう！</p>
     
     <div style="display: flex; flex-direction: column; gap: 12px;">
-      <button class="btn" onclick="openAuthModal('login')">ログイン</button>
-      <button class="btn btn-secondary" onclick="openAuthModal('register')">新規登録</button>
+      <button class="btn" onclick="window.openAuthModal('login')">ログイン</button>
+      <button class="btn btn-secondary" onclick="window.openAuthModal('register')">新規登録</button>
       <button class="btn btn-success" onclick="openAlbum('cloud')">公開クイズをプレイ (みんなの広場)</button>
     </div>
   </div>
@@ -383,34 +383,31 @@
   let targetQuizzesForPublish = [];
   let fetchedCloudQuizzesCache = [];
 
-  onAuthStateChanged(auth, (user) => {
-    currentUser = user;
-    const welcomeUserText = document.getElementById('welcomeUserText');
-
-    if (user) {
-      const nick = user.email.split('@')[0];
-      welcomeUserText.textContent = `👤 ログイン中: ${nick}`;
-      showScreen('screenDashboard');
-    } else {
-      showScreen('screenLanding');
-    }
-  });
-
+  // グローバルに関数を登録してボタンから確実に呼び出せるようにする
   window.openAuthModal = function(mode) {
     isRegisterMode = (mode === 'register');
-    document.getElementById('authModalTitle').textContent = isRegisterMode ? "新規アカウント登録" : "アカウントログイン";
-    document.getElementById('authUsername').value = "";
-    document.getElementById('authPassword').value = "";
-    document.getElementById('authModal').classList.add('active');
-  }
+    const titleEl = document.getElementById('authModalTitle');
+    const modalEl = document.getElementById('authModal');
+    if (titleEl) titleEl.textContent = isRegisterMode ? "新規アカウント登録" : "アカウントログイン";
+    const userEl = document.getElementById('authUsername');
+    const passEl = document.getElementById('authPassword');
+    if (userEl) userEl.value = "";
+    if (passEl) passEl.value = "";
+    if (modalEl) modalEl.classList.add('active');
+  };
 
   window.closeAuthModal = function() {
-    document.getElementById('authModal').classList.remove('active');
-  }
+    const modalEl = document.getElementById('authModal');
+    if (modalEl) modalEl.classList.remove('active');
+  };
 
   window.handleAuthSubmit = async function() {
-    const username = document.getElementById('authUsername').value.trim();
-    const pass = document.getElementById('authPassword').value;
+    const usernameEl = document.getElementById('authUsername');
+    const passwordEl = document.getElementById('authPassword');
+    if (!usernameEl || !passwordEl) return;
+
+    const username = usernameEl.value.trim();
+    const pass = passwordEl.value;
     if (!username || !pass) { alert("ニックネームとパスワードを入力してください。"); return; }
     const dummyEmail = `${username}@recaptcha.app`;
     try {
@@ -421,14 +418,31 @@
         await signInWithEmailAndPassword(auth, dummyEmail, pass);
         alert("ログインしました！");
       }
-      closeAuthModal();
+      window.closeAuthModal();
     } catch (e) { alert("認証エラー: " + e.message); }
-  }
+  };
 
   window.handleLogout = async function() {
-    await signOut(auth);
-    alert("ログアウトしました。");
-  }
+    try {
+      await signOut(auth);
+      alert("ログアウトしました。");
+    } catch (e) {
+      alert("ログアウトエラー: " + e.message);
+    }
+  };
+
+  onAuthStateChanged(auth, (user) => {
+    currentUser = user;
+    const welcomeUserText = document.getElementById('welcomeUserText');
+
+    if (user) {
+      const nick = user.email.split('@')[0];
+      if (welcomeUserText) welcomeUserText.textContent = `👤 ログイン中: ${nick}`;
+      showScreen('screenDashboard');
+    } else {
+      showScreen('screenLanding');
+    }
+  });
 
   window.goBackHome = function() {
     if (currentUser) {
@@ -436,7 +450,7 @@
     } else {
       showScreen('screenLanding');
     }
-  }
+  };
 
   function generate12Code() {
     const chars = "abcdefghijklmnopqrstuvwxyz";
@@ -449,13 +463,14 @@
 
   window.togglePubTargetInput = function() {
     const pubTypeEl = document.getElementById('pubTypeSelect');
-    if (!pubTypeEl) return;
+    const targetArea = document.getElementById('targetUserInputArea');
+    if (!pubTypeEl || !targetArea) return;
     const type = pubTypeEl.value;
-    document.getElementById('targetUserInputArea').style.display = (type === 'direct') ? 'block' : 'none';
-  }
+    targetArea.style.display = (type === 'direct') ? 'block' : 'none';
+  };
 
   window.openPublishModalForQuiz = function(quiz) {
-    if (!currentUser) { openAuthModal('login'); return; }
+    if (!currentUser) { window.openAuthModal('login'); return; }
     if (quiz.cloudId) {
       alert("このクイズはすでに公開済みです。");
       return;
@@ -465,10 +480,10 @@
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('targetUserInputArea').style.display = 'none';
     document.getElementById('publishModal').classList.add('active');
-  }
+  };
 
   window.openBatchPublishModal = function() {
-    if (!currentUser) { openAuthModal('login'); return; }
+    if (!currentUser) { window.openAuthModal('login'); return; }
     const checkboxes = document.querySelectorAll('.quiz-select-checkbox:checked');
     if (checkboxes.length === 0) { alert("公開するクイズを選択してください。"); return; }
     if (checkboxes.length < 2 || checkboxes.length > 15) {
@@ -494,11 +509,11 @@
     document.getElementById('pubTargetUser').value = "";
     document.getElementById('targetUserInputArea').style.display = 'none';
     document.getElementById('publishModal').classList.add('active');
-  }
+  };
 
   window.closePublishModal = function() {
     document.getElementById('publishModal').classList.remove('active');
-  }
+  };
 
   window.executePublish = async function() {
     const pubType = document.getElementById('pubTypeSelect').value;
@@ -549,10 +564,10 @@
       })));
 
       alert("公開したらできました！");
-      closePublishModal();
+      window.closePublishModal();
       showScreen('screenDashboard');
     } catch (e) { alert("送信エラー: " + e.message); }
-  }
+  };
 
   window.unpublishQuiz = async function(cloudId, localId) {
     if (!cloudId) { alert("このクイズはまだクラウドに公開されていません。"); return; }
@@ -571,15 +586,19 @@
     } catch (e) {
       alert("非公開エラー: " + e.message);
     }
-  }
+  };
 
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
-    document.getElementById('batchActionArea').style.display = 'none';
-    document.getElementById('searchBarArea').style.display = 'block';
-    document.getElementById('quizSearchInput').value = '';
+    const batchArea = document.getElementById('batchActionArea');
+    const searchArea = document.getElementById('searchBarArea');
+    const searchInput = document.getElementById('quizSearchInput');
     
-    listContainer.innerHTML = '<p style="text-align:center; color:#888;">クラウドから読み込み中...</p>';
+    if (batchArea) batchArea.style.display = 'none';
+    if (searchArea) searchArea.style.display = 'block';
+    if (searchInput) searchInput.value = '';
+    
+    if (listContainer) listContainer.innerHTML = '<p style="text-align:center; color:#888;">クラウドから読み込み中...</p>';
     
     try {
       const querySnapshot = await getDocs(collection(db, "quizzes"));
@@ -594,7 +613,7 @@
             fetchedCloudQuizzesCache.push(data);
           }
         } else if (mode === 'direct') {
-          if (myName && data.targetUser.trim() === myName) {
+          if (myName && data.targetUser && data.targetUser.trim() === myName) {
             fetchedCloudQuizzesCache.push(data);
           }
         }
@@ -602,9 +621,9 @@
 
       renderQuizListUI(fetchedCloudQuizzesCache);
     } catch (e) {
-      listContainer.innerHTML = '<p style="text-align:center; color:red;">読み込みエラーが発生しました。</p>';
+      if (listContainer) listContainer.innerHTML = '<p style="text-align:center; color:red;">読み込みエラーが発生しました。</p>';
     }
-  }
+  };
 
   window.filterQuizList = function() {
     const inputEl = document.getElementById('quizSearchInput');
@@ -616,10 +635,11 @@
       return titleMatch || codeMatch;
     });
     renderQuizListUI(filtered);
-  }
+  };
 
   function renderQuizListUI(quizzes) {
     const listContainer = document.getElementById('quizList');
+    if (!listContainer) return;
     listContainer.innerHTML = '';
 
     if (quizzes.length === 0) {
@@ -648,21 +668,24 @@
 
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
-    document.getElementById('batchActionArea').style.display = 'block';
-    document.getElementById('searchBarArea').style.display = 'none';
+    const batchArea = document.getElementById('batchActionArea');
+    const searchArea = document.getElementById('searchBarArea');
+
+    if (batchArea) batchArea.style.display = 'block';
+    if (searchArea) searchArea.style.display = 'none';
 
     if (!currentUser) {
-      listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインしてください。</p>';
+      if (listContainer) listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインしてください。</p>';
       return;
     }
 
     const userKey = `quizzes_${currentUser.uid}`;
     const quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
-    listContainer.innerHTML = '';
+    if (listContainer) listContainer.innerHTML = '';
     
     if (quizzes.length === 0) {
-      document.getElementById('batchActionArea').style.display = 'none';
-      listContainer.innerHTML = '<p style="text-align:center; color:#888;">まだ作成したクイズがありません。</p>';
+      if (batchArea) batchArea.style.display = 'none';
+      if (listContainer) listContainer.innerHTML = '<p style="text-align:center; color:#888;">まだ作成したクイズがありません。</p>';
       return;
     }
 
@@ -688,9 +711,9 @@
           <button class="btn btn-danger" style="margin:0; font-size:12px;" onclick="deleteLocalQuiz(${quiz.id}, '${quiz.cloudId || ''}')">削除</button>
         </div>
       `;
-      listContainer.appendChild(item);
+      if (listContainer) listContainer.appendChild(item);
     });
-  }
+  };
 
   window.saveUserQuizLocal = function(title, gridSize, images, answers) {
     if (!currentUser) return;
@@ -700,7 +723,7 @@
     localStorage.setItem(userKey, JSON.stringify(quizzes));
     alert('自分のアルバムに保存しました！');
     showScreen('screenDashboard');
-  }
+  };
 
   window.deleteLocalQuiz = async function(localId, cloudId) {
     if (!currentUser) return;
@@ -719,7 +742,7 @@
     quizzes = quizzes.filter(q => q.id !== localId);
     localStorage.setItem(userKey, JSON.stringify(quizzes));
     loadUserLocalQuizzes();
-  }
+  };
 </script>
 
 <!-- UI・共通描画スクリプト -->
@@ -742,36 +765,45 @@
 
   function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(screenId).classList.add('active');
+    const target = document.getElementById(screenId);
+    if (target) target.classList.add('active');
     if (screenId === 'screenCreate') {
       initBlankGrid();
     }
   }
 
-  document.getElementById('createTitle').addEventListener('input', (e) => {
-    document.getElementById('previewTitleDisplay').textContent = e.target.value || 'お題がここに入ります';
-  });
+  const titleInput = document.getElementById('createTitle');
+  if (titleInput) {
+    titleInput.addEventListener('input', (e) => {
+      const preview = document.getElementById('previewTitleDisplay');
+      if (preview) preview.textContent = e.target.value || 'お題がここに入ります';
+    });
+  }
 
   function initBlankGrid() {
-    const sizeVal = document.querySelector('input[name="gridSize"]:checked').value;
-    currentGridSize = parseInt(sizeVal, 10);
+    const sizeRadio = document.querySelector('input[name="gridSize"]:checked');
+    currentGridSize = sizeRadio ? parseInt(sizeRadio.value, 10) : 9;
     tileImages = new Array(currentGridSize).fill(null);
     correctAnswers = new Array(currentGridSize).fill(false);
     renderCreateGrid();
   }
 
   function toggleUploadMode() {
-    const mode = document.querySelector('input[name="uploadType"]:checked').value;
-    document.getElementById('singleFileInputArea').style.display = (mode === 'single') ? 'block' : 'none';
+    const modeRadio = document.querySelector('input[name="uploadType"]:checked');
+    const mode = modeRadio ? modeRadio.value : 'individual';
+    const singleArea = document.getElementById('singleFileInputArea');
+    if (singleArea) singleArea.style.display = (mode === 'single') ? 'block' : 'none';
     renderCreateGrid();
   }
 
   function renderCreateGrid() {
     const grid = document.getElementById('createGrid');
+    if (!grid) return;
     grid.className = `grid grid-${currentGridSize}`;
     grid.innerHTML = '';
 
-    const mode = document.querySelector('input[name="uploadType"]:checked').value;
+    const modeRadio = document.querySelector('input[name="uploadType"]:checked');
+    const mode = modeRadio ? modeRadio.value : 'individual';
 
     tileImages.forEach((src, idx) => {
       const tile = document.createElement('div');
@@ -790,7 +822,8 @@
         if (mode === 'individual') {
           if (!src) {
             selectedTileIndex = idx;
-            document.getElementById('fileInputTile').click();
+            const fileTile = document.getElementById('fileInputTile');
+            if (fileTile) fileTile.click();
           } else {
             correctAnswers[idx] = !correctAnswers[idx];
             renderCreateGrid();
@@ -811,30 +844,39 @@
     cropCallback = callback;
     const minSide = Math.min(img.width, img.height);
     cropScale = 260 / minSide;
-    document.getElementById('zoomRange').value = cropScale;
+    const zoomRange = document.getElementById('zoomRange');
+    if (zoomRange) zoomRange.value = cropScale;
     cropOffsetX = (260 - img.width * cropScale) / 2;
     cropOffsetY = (260 - img.height * cropScale) / 2;
-    document.getElementById('cropModal').classList.add('active');
+    const cropModal = document.getElementById('cropModal');
+    if (cropModal) cropModal.classList.add('active');
     drawCropCanvas();
   }
 
-  function closeCropModal() { document.getElementById('cropModal').classList.remove('active'); }
+  function closeCropModal() {
+    const cropModal = document.getElementById('cropModal');
+    if (cropModal) cropModal.classList.remove('active');
+  }
 
   function drawCropCanvas() {
     if (!rawImageObj) return;
     const canvas = document.getElementById('cropCanvas');
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    cropScale = parseFloat(document.getElementById('zoomRange').value);
+    const zoomRange = document.getElementById('zoomRange');
+    if (zoomRange) cropScale = parseFloat(zoomRange.value);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(rawImageObj, cropOffsetX, cropOffsetY, rawImageObj.width * cropScale, rawImageObj.height * cropScale);
   }
 
   const container = document.getElementById('canvasContainer');
-  container.addEventListener('pointerdown', (e) => {
-    isDragging = true;
-    startX = e.clientX - cropOffsetX;
-    startY = e.clientY - cropOffsetY;
-  });
+  if (container) {
+    container.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      startX = e.clientX - cropOffsetX;
+      startY = e.clientY - cropOffsetY;
+    });
+  }
   window.addEventListener('pointermove', (e) => {
     if (!isDragging) return;
     cropOffsetX = e.clientX - startX;
@@ -912,7 +954,8 @@
   }
 
   function saveQuizLocal() {
-    const title = document.getElementById('createTitle').value.trim();
+    const titleEl = document.getElementById('createTitle');
+    const title = titleEl ? titleEl.value.trim() : "";
     if (!title) { alert('お題を入力してください。'); return; }
     if (tileImages.some(img => img === null)) { alert('すべてのマスに画像を設定してください。'); return; }
     if (!correctAnswers.some(ans => ans === true)) { alert('少なくとも1つ以上の正解マスを設定してください。'); return; }
@@ -922,14 +965,15 @@
 
   function openAlbum(mode) {
     showScreen('screenAlbum');
+    const albumTitle = document.getElementById('albumTitle');
     if (mode === 'local') {
-      document.getElementById('albumTitle').textContent = "ｍｙアルバム (自分の作品)";
+      if (albumTitle) albumTitle.textContent = "ｍｙアルバム (自分の作品)";
       window.loadUserLocalQuizzes();
     } else if (mode === 'cloud') {
-      document.getElementById('albumTitle').textContent = "みんなの広場 (公開クイズ)";
+      if (albumTitle) albumTitle.textContent = "みんなの広場 (公開クイズ)";
       window.loadCloudQuizzes('cloud');
     } else if (mode === 'direct') {
-      document.getElementById('albumTitle').textContent = "📬 友達からのクイズ (自分宛て)";
+      if (albumTitle) albumTitle.textContent = "📬 友達からのクイズ (自分宛て)";
       window.loadCloudQuizzes('direct');
     }
   }
@@ -939,14 +983,17 @@
     currentPlaylistIndex = startIndex;
     showScreen('screenPlay');
     renderCurrentPlayQuiz();
-  }
+  };
 
   function renderCurrentPlayQuiz() {
     const quizData = activePlaylist[currentPlaylistIndex];
-    document.getElementById('progressIndicator').textContent = `問題 ${currentPlaylistIndex + 1} / ${activePlaylist.length}`;
-    document.getElementById('playTitle').textContent = quizData.title;
+    const progressEl = document.getElementById('progressIndicator');
+    const playTitleEl = document.getElementById('playTitle');
+    if (progressEl) progressEl.textContent = `問題 ${currentPlaylistIndex + 1} / ${activePlaylist.length}`;
+    if (playTitleEl) playTitleEl.textContent = quizData.title;
     
     const grid = document.getElementById('playGrid');
+    if (!grid) return;
     grid.className = `grid grid-${quizData.gridSize}`;
     grid.innerHTML = '';
 
