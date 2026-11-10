@@ -53,7 +53,6 @@
     .btn-danger { background-color: #dc3545; padding: 6px 10px; font-size: 12px; width: auto; }
     .btn-warning { background-color: #e0a800; color: #fff; }
     .btn-warning:hover { background-color: #c69500; }
-    .btn-disabled { background-color: #cccccc !important; cursor: not-allowed; }
 
     /* ログイン状態のユーザー名表示 */
     .user-welcome {
@@ -266,9 +265,15 @@
     <button class="btn btn-secondary" onclick="showScreen('screenDashboard')">ダッシュボードへ戻る</button>
   </div>
 
-  <!-- 4. アルバム / 一覧画面 -->
+  <!-- 4. アルバム / 一覧画面 (検索バー付き) -->
   <div id="screenAlbum" class="screen">
     <h2 id="albumTitle">アルバム</h2>
+    
+    <!-- 検索バー -->
+    <div id="searchBarArea" style="margin-bottom: 10px; display:none;">
+      <input type="text" id="quizSearchInput" placeholder="12桁のコードまたはタイトルで検索..." oninput="filterQuizList()" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;">
+    </div>
+
     <div id="batchActionArea" style="margin-bottom: 10px; display:none;">
       <button class="btn btn-success" onclick="openBatchPublishModal()">選択したクイズをまとめて公開・送信</button>
     </div>
@@ -295,11 +300,23 @@
 
 </div>
 
-<!-- 公開・送信設定モーダル -->
+<!-- 公開・送信設定モーダル (全体公開/特定アカウント選択バー対応) -->
 <div id="publishModal" class="modal">
   <div class="modal-content">
     <h3>公開・送信設定</h3>
-    <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left; margin-top:6px;">難易度 (1〜5):</label>
+    
+    <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left; margin-top:6px;">公開タイプ:</label>
+    <select id="pubTypeSelect" style="width:100%; padding:8px; margin:4px 0 10px 0;" onchange="togglePubTargetInput()">
+      <option value="public">🌐 みんなの広場 (全体公開)</option>
+      <option value="direct">👤 特定のアカウントに送信</option>
+    </select>
+
+    <div id="targetUserInputArea" style="width:100%; display:none; margin-bottom:10px;">
+      <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left;">宛先アカウント名:</label>
+      <input type="text" id="pubTargetUser" placeholder="相手のニックネームを入力" style="width:100%; padding:8px; margin-top:4px;">
+    </div>
+
+    <label style="font-size: 13px; font-weight: bold; width:100% ; text-align:left;">難易度 (1〜5):</label>
     <select id="pubDifficulty" style="width:100%; padding:8px; margin:4px 0 10px 0;">
       <option value="1">⭐ 1 (かんたん)</option>
       <option value="2">⭐⭐ 2</option>
@@ -307,9 +324,6 @@
       <option value="4">⭐⭐⭐⭐ 4</option>
       <option value="5">⭐⭐⭐⭐⭐ 5 (むずかしい)</option>
     </select>
-
-    <label style="font-size: 13px; font-weight: bold; width:100%; text-align:left;">宛先 (全体公開 または 特定アカウント名):</label>
-    <input type="text" id="pubTargetUser" placeholder="空欄なら「みんなの広場」全体公開" style="width:100%; padding:8px; margin:4px 0 12px 0;">
 
     <button class="btn btn-success" onclick="executePublish()">決定して公開・送信</button>
     <button class="btn btn-secondary" onclick="closePublishModal()" style="margin-top:4px;">キャンセル</button>
@@ -367,6 +381,7 @@
   let currentUser = null;
   let isRegisterMode = false;
   let targetQuizzesForPublish = [];
+  let fetchedCloudQuizzesCache = []; // 検索・フィルタリング用キャッシュ
 
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
@@ -423,7 +438,22 @@
     }
   }
 
-  // --- 公開・送信制御 (1クイズ1回制限 ＆ 「公開したらできました」表示) ---
+  // --- 12桁のランダムなアルファベットコード生成 ---
+  function generate12Code() {
+    const chars = "abcdefghijklmnopqrstuvwxyz";
+    let result = "";
+    for (let i = 0; i < 12; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  // --- 公開・送信コントロール ---
+  window.togglePubTargetInput = function() {
+    const type = document.getElementById('pubTypeSelect').value;
+    document.getElementById('targetUserInputArea').style.display = (type === 'direct') ? 'block' : 'none';
+  }
+
   window.openPublishModalForQuiz = function(quiz) {
     if (!currentUser) { openAuthModal('login'); return; }
     if (quiz.cloudId) {
@@ -431,7 +461,9 @@
       return;
     }
     targetQuizzesForPublish = [quiz];
+    document.getElementById('pubTypeSelect').value = "public";
     document.getElementById('pubTargetUser').value = "";
+    document.getElementById('targetUserInputArea').style.display = 'none';
     document.getElementById('publishModal').classList.add('active');
   }
 
@@ -450,7 +482,6 @@
     checkboxes.forEach(cb => {
       const id = parseInt(cb.value, 10);
       const found = localQuizzes.find(q => q.id === id);
-      // すでに公開済みのものは除外して未公開のものだけを一括対象にする
       if (found && !found.cloudId) targetQuizzesForPublish.push(found);
     });
 
@@ -459,21 +490,44 @@
       return;
     }
 
+    document.getElementById('pubTypeSelect').value = "public";
     document.getElementById('pubTargetUser').value = "";
+    document.getElementById('targetUserInputArea').style.display = 'none';
     document.getElementById('publishModal').classList.add('active');
   }
 
   window.closePublishModal = function() {
-    document.getElementById('publishModal').classList.remove('active');
+    document.getElementById('publishModal'].classList.remove('active');
   }
 
   window.executePublish = async function() {
+    const pubType = document.getElementById('pubTypeSelect').value;
+    const targetUser = (pubType === 'direct') ? document.getElementById('pubTargetUser').value.trim() : "";
+    if (pubType === 'direct' && !targetUser) {
+      alert("宛先のアカウント名を入力してください。");
+      return;
+    }
+
     const difficulty = parseInt(document.getElementById('pubDifficulty').value, 10);
-    const targetUser = document.getElementById('pubTargetUser').value.trim();
     const authorName = currentUser.email.split('@')[0];
 
     try {
+      // データベース上の既存コード重複チェック用に全データを一度取得
+      const snapshot = await getDocs(collection(db, "quizzes"));
+      const existingCodes = new Set();
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data();
+        if (d.code) existingCodes.add(d.code);
+      });
+
       for (let quiz of targetQuizzesForPublish) {
+        // 被らない12桁コードを生成
+        let uniqueCode = generate12Code();
+        while (existingCodes.has(uniqueCode)) {
+          uniqueCode = generate12Code();
+        }
+        existingCodes.add(uniqueCode);
+
         const docRef = await addDoc(collection(db, "quizzes"), {
           title: quiz.title,
           gridSize: quiz.gridSize,
@@ -481,17 +535,19 @@
           answers: quiz.answers,
           author: authorName,
           difficulty: difficulty,
-          targetUser: targetUser || "",
+          targetUser: targetUser,
+          code: uniqueCode, // 12桁アルファベットコード
           createdAt: Date.now()
         });
 
         quiz.cloudId = docRef.id;
+        quiz.code = uniqueCode;
       }
 
       const userKey = `quizzes_${currentUser.uid}`;
       localStorage.setItem(userKey, JSON.stringify(JSON.parse(localStorage.getItem(userKey) || '[]').map(q => {
         const matched = targetQuizzesForPublish.find(t => t.id === q.id);
-        return matched ? { ...q, cloudId: matched.cloudId } : q;
+        return matched ? { ...q, cloudId: matched.cloudId, code: matched.code } : q;
       })));
 
       alert("公開したらできました！");
@@ -500,7 +556,7 @@
     } catch (e) { alert("送信エラー: " + e.message); }
   }
 
-  // --- クラウドから非公開にする（削除する）機能 ---
+  // --- 非公開にする ---
   window.unpublishQuiz = async function(cloudId, localId) {
     if (!cloudId) { alert("このクイズはまだクラウドに公開されていません。"); return; }
     if (!confirm("このクイズをみんなの広場から非公開（削除）にしますか？")) return;
@@ -510,7 +566,7 @@
       
       const userKey = `quizzes_${currentUser.uid}`;
       let quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
-      quizzes = quizzes.map(q => q.id === localId ? { ...q, cloudId: null } : q);
+      quizzes = quizzes.map(q => q.id === localId ? { ...q, cloudId: null, code: null } : q);
       localStorage.setItem(userKey, JSON.stringify(quizzes));
 
       alert("クイズを非公開にしました。");
@@ -520,63 +576,83 @@
     }
   }
 
-  // --- 全アカウント共通のクラウド読み込み（誰のアカウントでも全員分見られるように修正） ---
+  // --- クラウド取得 & 検索バー機能 ---
   window.loadCloudQuizzes = async function(mode) {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'none';
+    document.getElementById('searchBarArea').style.display = 'block'; // 検索バーを表示
+    document.getElementById('quizSearchInput').value = '';
+    
     listContainer.innerHTML = '<p style="text-align:center; color:#888;">クラウドから読み込み中...</p>';
     
     try {
       const querySnapshot = await getDocs(collection(db, "quizzes"));
-      listContainer.innerHTML = '';
-      let quizzes = [];
+      fetchedCloudQuizzesCache = [];
 
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const myName = currentUser ? currentUser.email.split('@')[0] : "";
 
         if (mode === 'cloud') {
-          // 全体公開のクイズ（誰でも閲覧可能）
           if (!data.targetUser || data.targetUser.trim() === "") {
-            quizzes.push(data);
+            fetchedCloudQuizzesCache.push(data);
           }
         } else if (mode === 'direct') {
-          // 自分宛てのクイズ
           if (myName && data.targetUser.trim() === myName) {
-            quizzes.push(data);
+            fetchedCloudQuizzesCache.push(data);
           }
         }
       });
 
-      if (quizzes.length === 0) {
-        listContainer.innerHTML = `<p style="text-align:center; color:#888;">${mode === 'direct' ? 'あなた宛てのクイズはまだ届いていません。' : 'みんなの広場に公開クイズがありません。'}</p>`;
-        return;
-      }
-
-      quizzes.forEach((quizData) => {
-        const diffStars = "⭐".repeat(quizData.difficulty || 3);
-        const item = document.createElement('div');
-        item.className = 'quiz-list-item';
-        item.innerHTML = `
-          <div>
-            <strong>${quizData.title}</strong> (${quizData.gridSize}マス)<br>
-            <span style="font-size:11px; color:#666;">作者: ${quizData.author || '名無し'} | 難易度: ${diffStars}</span>
-          </div>
-          <div>
-            <button class="btn" style="width:auto; padding:6px 12px; margin:0;" onclick='startContinuousPlay([${JSON.stringify(quizData)}], 0)'>挑戦</button>
-          </div>
-        `;
-        listContainer.appendChild(item);
-      });
+      renderQuizListUI(fetchedCloudQuizzesCache);
     } catch (e) {
       listContainer.innerHTML = '<p style="text-align:center; color:red;">読み込みエラーが発生しました。</p>';
     }
   }
 
-  // --- ログインユーザーの自分の作品アルバム ---
+  window.filterQuizList = function() {
+    const keyword = document.getElementById('quizSearchInput').value.trim().toLowerCase();
+    const filtered = fetchedCloudQuizzesCache.filter(q => {
+      const titleMatch = q.title && q.title.toLowerCase().includes(keyword);
+      const codeMatch = q.code && q.code.toLowerCase().includes(keyword);
+      return titleMatch || codeMatch;
+    });
+    renderQuizListUI(filtered);
+  }
+
+  function renderQuizListUI(quizzes) {
+    const listContainer = document.getElementById('quizList');
+    listContainer.innerHTML = '';
+
+    if (quizzes.length === 0) {
+      listContainer.innerHTML = '<p style="text-align:center; color:#888;">該当するクイズがありません。</p>';
+      return;
+    }
+
+    quizzes.forEach((quizData) => {
+      const diffStars = "⭐".repeat(quizData.difficulty || 3);
+      const codeText = quizData.code ? `コード: <code>${quizData.code}</code>` : "";
+      const item = document.createElement('div');
+      item.className = 'quiz-list-item';
+      item.innerHTML = `
+        <div>
+          <strong>${quizData.title}</strong> (${quizData.gridSize}マス)<br>
+          <span style="font-size:11px; color:#666;">作者: ${quizData.author || '名無し'} | 難易度: ${diffStars}</span><br>
+          <span style="font-size:10px; color:#007bff; font-family:monospace;">${codeText}</span>
+        </div>
+        <div>
+          <button class="btn" style="width:auto; padding:6px 12px; margin:0;" onclick='startContinuousPlay([${JSON.stringify(quizData)}], 0)'>挑戦</button>
+        </div>
+      `;
+      listContainer.appendChild(item);
+    });
+  }
+
+  // --- 自分の作品アルバム ---
   window.loadUserLocalQuizzes = function() {
     const listContainer = document.getElementById('quizList');
     document.getElementById('batchActionArea').style.display = 'block';
+    document.getElementById('searchBarArea').style.display = 'none'; // アルバムでは検索非表示
 
     if (!currentUser) {
       listContainer.innerHTML = '<p style="text-align:center; color:#888;">ログインしてください。</p>';
@@ -595,13 +671,14 @@
 
     quizzes.forEach((quiz) => {
       const isPublished = Boolean(quiz.cloudId);
+      const codeSnippet = quiz.code ? `<br><span style="font-size:10px; color:#007bff; font-family:monospace;">コード: ${quiz.code}</span>` : "";
       const item = document.createElement('div');
       item.className = 'quiz-list-item';
       item.innerHTML = `
         <div style="display:flex; align-items:center; gap:8px;">
           ${!isPublished ? `<input type="checkbox" class="quiz-select-checkbox" value="${quiz.id}" style="transform:scale(1.2);">` : `<span style="width:20px; text-align:center; color:#ccc;">✓</span>`}
           <div>
-            <strong>${quiz.title}</strong> (${quiz.gridSize}マス)<br>
+            <strong>${quiz.title}</strong> (${quiz.gridSize}マス)${codeSnippet}<br>
             <span style="font-size:11px; color:${isPublished ? 'green' : '#888'};">${isPublished ? '🌐 公開中 (投稿済)' : '🔒 未公開'}</span>
           </div>
         </div>
@@ -622,7 +699,7 @@
     if (!currentUser) return;
     const userKey = `quizzes_${currentUser.uid}`;
     const quizzes = JSON.parse(localStorage.getItem(userKey) || '[]');
-    quizzes.push({ id: Date.now(), title, gridSize, images, answers, cloudId: null });
+    quizzes.push({ id: Date.now(), title, gridSize, images, answers, cloudId: null, code: null });
     localStorage.setItem(userKey, JSON.stringify(quizzes));
     alert('自分のアルバムに保存しました！');
     showScreen('screenDashboard');
